@@ -1,0 +1,27 @@
+# 运行时数据（不入库）
+data/
+apps/web/data/*
+!apps/web/data/.gitkeep
+
+# 构建产物
+dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# 环境与密钥
+.env
+.env.*
+
+# 系统
+Thumbs.db
+.DS_Store
+
+# 编辑器
+.idea/
+.vscode/

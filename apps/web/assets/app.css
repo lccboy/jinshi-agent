@@ -1,0 +1,13 @@
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Microsoft YaHei",sans-serif;background:#0d1117;color:#c9d1d9}
+.app{min-height:100vh;display:flex;flex-direction:column}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:10px 18px;background:#161b22;border-bottom:1px solid #30363d}
+.brand{font-size:16px;font-weight:700;color:#e6edf3}
+.tabs{display:flex;gap:6px;overflow-x:auto}
+.tab{padding:7px 12px;border:1px solid #30363d;border-radius:6px;background:transparent;color:#8b949e;font-size:13px;cursor:pointer}
+.tab:hover{color:#c9d1d9;border-color:#58a6ff}
+.tab.active{background:#1f2937;border-color:#58a6ff;color:#c9d1d9}
+.main{flex:1;padding:32px;display:flex;align-items:center;justify-content:center}
+.empty-state{max-width:620px;text-align:center;padding:40px;border:1px solid #30363d;border-radius:8px;background:#161b22}
+.empty-state h1{font-size:22px;margin-bottom:12px}
+.empty-state p{color:#8b949e;line-height:1.7}
