@@ -1,13 +1,16 @@
 # V0.1a 任务 6：archive_job / Web 视图层测试（裁剪/预排序/gzip，TDD）
 import gzip
 import json
+import os
 
 from services.collector.archive_job import (
     build_day_view,
     build_detail_view,
+    build_stocks_slim,
     compute_confirm,
     trim_quotes,
     write_day_view,
+    write_master_lib,
 )
 
 
@@ -122,3 +125,32 @@ def test_write_detail_view_files(tmp_path):
     assert (tmp_path / "day_2026-08-14.detail.json.gz").exists()
     gz = gzip.open(tmp_path / "day_2026-08-14.detail.json.gz", "rt", encoding="utf-8")
     assert json.load(gz)["date"] == "2026-08-14"
+
+
+def test_build_stocks_slim():
+    # V0.3.0：成分股 slim（名称+归属 ID，裁剪体积）
+    stocks = {"SZ300487": {"name": "蓝晓科技", "current": {"sectors": ["801001"], "themes": ["9"]}},
+              "SH600000": {"name": "浦发银行", "current": {}}}
+    slim = build_stocks_slim(stocks)
+    assert slim["SZ300487"] == {"n": "蓝晓科技", "s": ["801001"], "t": ["9"]}
+    assert slim["SH600000"] == {"n": "浦发银行", "s": [], "t": []}
+
+
+def test_write_master_lib(tmp_path):
+    # normalized 字典 → web/ 出 4 个 .json + .gz（懒加载主数据）
+    norm = tmp_path / "normalized"
+    norm.mkdir()
+    (norm / "themes.json").write_text(json.dumps({"9": {"name": "光刻机"}}), encoding="utf-8")
+    (norm / "theme_stocks.json").write_text(json.dumps({"9": ["SZ300487"]}), encoding="utf-8")
+    (norm / "sectors.json").write_text(json.dumps({"801001": {"name": "芯片"}}), encoding="utf-8")
+    (norm / "stocks.json").write_text(
+        json.dumps({"SZ300487": {"name": "蓝晓科技", "current": {"sectors": ["801001"], "themes": ["9"]}}}),
+        encoding="utf-8")
+    web = tmp_path / "web"
+    web.mkdir()
+    write_master_lib(str(norm), str(web))
+    for name in ("themes.json", "theme_stocks.json", "sectors.json", "stocks_slim.json"):
+        assert (web / name).exists(), name
+        assert (web / (name + ".gz")).exists(), name + ".gz"
+    slim = json.loads((web / "stocks_slim.json").read_text(encoding="utf-8"))
+    assert slim["SZ300487"]["n"] == "蓝晓科技"

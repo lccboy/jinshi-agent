@@ -122,6 +122,38 @@ def write_detail_view(date_str, detail, out_dir):
 
 # ---------------- 写盘 ----------------
 
+def build_stocks_slim(stocks):
+    """5146 只 → {sid: {n 名称, s 板块ID[], t 题材ID[]}}：成分股展开用的体积裁剪（V0.3.0 UI）。"""
+    slim = {}
+    for sid, rec in stocks.items():
+        cur = rec.get("current", {}) or {}
+        slim[sid] = {"n": rec.get("name", sid), "s": list(cur.get("sectors", [])), "t": list(cur.get("themes", []))}
+    return slim
+
+
+def write_master_lib(norm_dir, web_dir):
+    """主数据懒加载库 → data/web/：themes/theme_stocks/sectors 拷贝 + stocks_slim 生成，全部 .json + .gz。"""
+    os.makedirs(web_dir, exist_ok=True)
+    pairs = []
+    for name in ("themes.json", "theme_stocks.json", "sectors.json"):
+        src = os.path.join(norm_dir, name)
+        if not os.path.exists(src):
+            continue
+        with open(src, encoding="utf-8") as fh:
+            content = json.load(fh)
+        pairs.append((name, content))
+    stocks_path = os.path.join(norm_dir, "stocks.json")
+    if os.path.exists(stocks_path):
+        with open(stocks_path, encoding="utf-8") as fh:
+            pairs.append(("stocks_slim.json", build_stocks_slim(json.load(fh))))
+    for name, content in pairs:
+        raw = json.dumps(content, ensure_ascii=False).encode("utf-8")
+        with open(os.path.join(web_dir, name), "wb") as fh:
+            fh.write(raw)
+        with open(os.path.join(web_dir, name + ".gz"), "wb") as fh:
+            fh.write(gzip.compress(raw, compresslevel=6))
+    return [p[0] for p in pairs]
+
 def write_day_view(date_str, view, out_dir):
     """写 day_<date>.json + .gz + day_latest.json，更新 index.json 日期清单。"""
     os.makedirs(out_dir, exist_ok=True)
@@ -183,11 +215,13 @@ def read_facts(date_str, facts_dir):
 
 
 def archive_day(date_str, facts_dir, web_dir, intraday_dir, archive_dir):
-    """归档编排：facts → 视图层（day + detail + 索引）→ intraday 移入 archive。返回 (view, paths)。"""
+    """归档编排：facts → 视图层（day + detail + 索引 + master lib）→ intraday 移入 archive。返回 (view, paths)。"""
     facts = read_facts(date_str, facts_dir)
     view = build_day_view(date_str, facts)
     paths = write_day_view(date_str, view, web_dir)
     paths += write_detail_view(date_str, build_detail_view(date_str, facts), web_dir)
+    paths += [os.path.join(web_dir, n) for n in
+              write_master_lib(os.path.join(os.path.dirname(facts_dir), "normalized"), web_dir)]
 
     src = os.path.join(intraday_dir, date_str)
     if os.path.isdir(src):
