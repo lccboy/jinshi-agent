@@ -21,6 +21,53 @@
   }
   function dayFile(date) { return 'data/web/day_' + date + '.json'; }
 
+  /* ---------- 主数据懒加载库（题材/板块/成分，进题材/板块 tab 时拉，内存缓存） ---------- */
+  var LIBS = {};
+  var focusTag = null;
+  function loadLib(name) {
+    var key = name.replace(/\.json$/, '');
+    if (LIBS[key]) return Promise.resolve(LIBS[key]);
+    return fetchJSON('data/web/' + name).then(function (d) { LIBS[key] = d; return d; });
+  }
+  function loadExpandLibs() {
+    return Promise.all([loadLib('theme_stocks.json'), loadLib('stocks_slim.json')]);
+  }
+  function goTag(type, id) {
+    focusTag = { type: type, id: id };
+    var view = type === 'theme' ? 'theme' : 'sector';
+    document.querySelectorAll('.tab').forEach(function (t) { t.classList.toggle('active', t.dataset.view === view); });
+    currentView = view;
+    if (history.replaceState) history.replaceState(null, '', '#' + view);
+    render();
+  }
+  function limitupSet() {
+    var view = CACHE[currentDay] || {};
+    return new Set((view.limitup || []).map(function (e) { return e.stock_id; }));
+  }
+  function memberTable(sids, total) {
+    var slim = LIBS.stocks_slim || {}, sectors = LIBS.sectors || {}, themes = LIBS.themes || {};
+    var lu = limitupSet();
+    var rows = sids.map(function (sid) {
+      var m = slim[sid] || { n: sid, s: [], t: [] };
+      var secTags = (m.s || []).slice(0, 4).map(function (s) {
+        return '<span class="tag-chip sec" data-go="sector" data-id="' + esc(s) + '">' + esc((sectors[s] || {}).name || s) + '</span>';
+      }).join('');
+      var thTags = (m.t || []).slice(0, 4).map(function (t) {
+        return '<span class="tag-chip thm" data-go="theme" data-id="' + esc(t) + '">' + esc((themes[t] || {}).name || t) + '</span>';
+      }).join('');
+      var zt = lu.has(sid) ? '<span class="badge b-boards">涨停</span>' : '';
+      return '<tr><td class="l">' + stk(sid, code6(sid)) + '</td><td class="l">' + esc(m.n) + '</td>' +
+        '<td class="l">' + secTags + thTags + '</td><td>' + zt + '</td></tr>';
+    }).join('');
+    return '<div class="tblwrap"><table><thead><tr><th class="l">代码</th><th class="l">名称</th><th class="l">板块 / 题材</th><th>状态</th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="4" class="muted">无成分股</td></tr>') + '</tbody></table></div>' +
+      (total > sids.length ? '<div class="disc">仅展示前 ' + sids.length + ' 只（共 ' + total + ' 只）</div>' : '');
+  }
+  function sectorMembers(sid) {
+    var slim = LIBS.stocks_slim || {};
+    return Object.keys(slim).filter(function (s) { return (slim[s].s || []).indexOf(sid) >= 0; });
+  }
+
   /* ---------- 数据加载 ---------- */
   function loadIndex() {
     return fetchJSON('data/web/index.json').then(function (idx) {
@@ -105,26 +152,66 @@
       '<div class="grid2">' + mfCard + lrCard + '</div>';
   }
 
-  /* 题材库：领涨原因题材列表 */
+  /* 题材库：全量 248 题材 → 概念标签 → 成分股展开（懒加载） */
   function vTheme(view) {
-    var lr = (view.leading_reason || []).map(function (p) {
-      return '<div class="lead-item"><div class="lead-name">' + esc(p.name) + (p.limit_up_count ? ' <span class="badge b-boards">' + p.limit_up_count + ' 只</span>' : '') + '</div><div class="lead-reason">' + esc(p.reason || '-') + '</div></div>';
-    }).join('');
-    return card('📚 题材库 · 领涨题材', '板块领涨原因（选股宝）', lr || '<div class="muted" style="padding:12px">暂无数据</div>');
+    loadLib('themes.json').then(function () { renderThemeList(view); });
+    var focus = focusTag && focusTag.type === 'theme' ? LIBS.themes[focusTag.id].name : '';
+    return card('📚 题材库 · 全量', '题材 → 概念 → 成分股（按成分数排序，点击展开）', 
+      '<input id="themeSearch" class="lib-search" placeholder="🔍 搜索题材…" value="' + esc(focus || '') + '">' +
+      '<div id="themeList" class="lib-list"><div class="muted" style="padding:12px">加载中…</div></div>');
   }
 
-  /* 板块强度：板块排行 + 资金流 */
+  function renderThemeList(view) {
+    var kw = ($('themeSearch') ? $('themeSearch').value : '').trim();
+    var themes = LIBS.themes || {};
+    var ids = Object.keys(themes).filter(function (t) { return !kw || (themes[t].name || '').indexOf(kw) >= 0; });
+    ids.sort(function (a, b) { return (themes[b].stock_count || 0) - (themes[a].stock_count || 0); });
+    var focus = focusTag && focusTag.type === 'theme' ? focusTag.id : null;
+    var html = ids.map(function (tid) {
+      var t = themes[tid] || {};
+      var concepts = (t.sub_concepts || []).slice(0, 4).map(function (c) { return '<span class="badge b-src">' + esc(c) + '</span>'; }).join('');
+      var hl = tid === focus ? ' hl' : '';
+      return '<div class="theme-row' + hl + '" data-tid="' + esc(tid) + '">' +
+        '<div class="theme-head"><span class="theme-name">' + esc(t.name || tid) + '</span>' +
+        '<span class="badge b-boards">' + (t.stock_count || 0) + ' 只</span>' +
+        (t.hot ? '<span class="badge b-star">🔥 ' + t.hot + '</span>' : '') +
+        '<span class="theme-expand">▸</span></div>' +
+        '<div class="theme-concepts">' + concepts + '</div>' +
+        '<div class="theme-members"></div></div>';
+    }).join('');
+    $('themeList').innerHTML = ids.length ? html : '<div class="muted" style="padding:12px">无匹配题材</div>';
+    document.querySelectorAll('.theme-row').forEach(function (row) {
+      row.addEventListener('click', function () { toggleThemeExpand(row); });
+    });
+  }
+
+  function toggleThemeExpand(row) {
+    var box = row.querySelector('.theme-members');
+    var exp = row.querySelector('.theme-expand');
+    if (box.innerHTML) { box.innerHTML = ''; exp.textContent = '▸'; return; }
+    exp.textContent = '▾';
+    box.innerHTML = '<div class="muted">加载成分股…</div>';
+    loadExpandLibs().then(function () {
+      var sids = (LIBS.theme_stocks || {})[row.dataset.tid] || [];
+      box.innerHTML = memberTable(sids.slice(0, 200), sids.length);
+    });
+  }
+
+  /* 板块强度：板块排行（点击展开成分股）+ 资金流 */
   function vSector(view) {
+    loadLib('sectors.json');
     var secs = (view.sectors || []).map(function (s, i) {
-      return '<tr><td>' + (i + 1) + '</td><td class="l">' + esc(s.name) + '</td>' +
+      var hl = focusTag && focusTag.type === 'sector' && focusTag.id === s.id ? ' class="sec-row hl"' : ' class="sec-row"';
+      return '<tr' + hl + ' data-sid="' + esc(s.id) + '"><td>' + (i + 1) + '</td><td class="l">' + esc(s.name) + '</td>' +
         '<td class="up">' + fmtMoney(s.strength) + '</td><td class="' + cls(s.change) + '">' + fmtPct(s.change) + '</td>' +
         '<td class="' + cls(s.mainNet) + '">' + fmtMoney(s.mainNet) + '</td>' +
-        (s.limit_up_count != null ? '<td>' + s.limit_up_count + '</td>' : '') + '</tr>';
+        (s.limit_up_count != null ? '<td>' + s.limit_up_count + '</td>' : '') + '<td class="muted">▸</td></tr>' +
+        '<tr class="sec-members" data-sid="' + esc(s.id) + '" style="display:none"><td colspan="8" class="l"></td></tr>';
     }).join('');
     var cols = '<th>#</th><th class="l">板块</th><th>强度</th><th>涨跌%</th><th>主力净额</th>' +
-      ((view.sectors || [])[0] && view.sectors[0].limit_up_count != null ? '<th>涨停</th>' : '');
+      ((view.sectors || [])[0] && view.sectors[0].limit_up_count != null ? '<th>涨停</th>' : '') + '<th></th>';
     var secTable = '<div class="tblwrap"><table><thead><tr>' + cols + '</tr></thead><tbody>' +
-      (secs || '<tr><td colspan="5" class="muted">暂无板块数据</td></tr>') + '</tbody></table></div>';
+      (secs || '<tr><td colspan="6" class="muted">暂无板块数据</td></tr>') + '</tbody></table></div>';
 
     var mf = (view.money_flow || []).map(function (f, i) {
       return '<tr><td>' + (i + 1) + '</td><td class="l">' + esc(f.name) + '</td><td class="' + cls(f.main) + '">' + fmtMoney(f.main) + '</td><td class="' + cls(f.main_pct) + '">' + fmtPct(f.main_pct) + '</td></tr>';
@@ -132,7 +219,7 @@
     var mfTable = '<div class="tblwrap"><table><thead><tr><th>#</th><th class="l">板块</th><th>主力净流入</th><th>占比</th></tr></thead><tbody>' +
       (mf || '<tr><td colspan="4" class="muted">暂无</td></tr>') + '</tbody></table></div>';
 
-    return '<div class="grid2">' + card('📊 板块强度排行', currentDay + ' · 强度降序', secTable, true) +
+    return '<div class="grid2">' + card('📊 板块强度排行', currentDay + ' · 点击板块展开成分股', secTable, true) +
       card('💧 板块资金流', '东财主力净流入', mfTable, true) + '</div>';
   }
 
@@ -232,11 +319,31 @@
   });
   $('dateSel').addEventListener('change', function () { loadDay(this.value); });
   document.addEventListener('click', function (ev) {
+    var chip = ev.target.closest ? ev.target.closest('.tag-chip') : null;
+    if (chip) { ev.stopPropagation(); goTag(chip.dataset.go, chip.dataset.id); return; }
+    var secRow = ev.target.closest ? ev.target.closest('.sec-row') : null;
+    if (secRow) { toggleSectorExpand(secRow); return; }
     var btn = ev.target.closest ? ev.target.closest('.reason-pop') : null;
     if (btn) { ev.stopPropagation(); showPopup(btn.dataset.sid, ev.clientX, ev.clientY); return; }
     if (!ev.target.closest || !ev.target.closest('#popup')) $('popup').style.display = 'none';
   });
+  document.addEventListener('input', function (ev) {
+    if (ev.target && ev.target.id === 'themeSearch') renderThemeList(CACHE[currentDay]);
+  });
   document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') $('popup').style.display = 'none'; });
+
+  function toggleSectorExpand(row) {
+    var sid = row.dataset.sid;
+    var members = document.querySelector('.sec-members[data-sid="' + sid + '"]');
+    if (!members) return;
+    if (members.style.display !== 'none') { members.style.display = 'none'; return; }
+    members.style.display = '';
+    members.querySelector('td').innerHTML = '<div class="muted">加载成分股…</div>';
+    loadExpandLibs().then(function () {
+      var sids = sectorMembers(sid);
+      members.querySelector('td').innerHTML = memberTable(sids.slice(0, 200), sids.length);
+    });
+  }
 
   loadIndex();
 })();

@@ -58,4 +58,23 @@ a.stk:hover{text-decoration:underline}
 .lead-item:last-child{border-bottom:0}
 .lead-name{font-weight:600;color:#e6edf3}
 .lead-reason{color:#8b949e;margin-top:3px;line-height:1.6}
+/* ===== 题材库 ===== */
+.lib-search{width:100%;padding:8px 10px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#c9d1d9;margin-bottom:12px;font-size:13px;outline:none}
+.lib-search:focus{border-color:#58a6ff}
+.theme-row{border:1px solid #21262d;border-radius:8px;padding:10px 12px;margin-bottom:8px;cursor:pointer;background:#161b22}
+.theme-row.hl{border-color:#58a6ff}
+.theme-row:hover{background:#1f2937}
+.theme-head{display:flex;align-items:center;gap:8px}
+.theme-name{font-weight:600;color:#e6edf3;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.theme-expand{color:#8b949e;font-size:12px}
+.theme-concepts{margin-top:6px}
+.theme-members{margin-top:10px}
+.sec-row{cursor:pointer}
+.sec-row.hl td{background:#1f2937}
+.sec-members td{padding:0}
+/* ===== 标签互跳 ===== */
+.tag-chip{display:inline-block;padding:1px 7px;border-radius:6px;font-size:10.5px;margin:1px 3px 1px 0;cursor:pointer;font-weight:600}
+.tag-chip.sec{background:#1a2333;border:1px solid #2f6fdb;color:#5b8def}
+.tag-chip.thm{background:#221618;border:1px solid #4d2a28;color:#f0b860}
+.tag-chip:hover{filter:brightness(1.3)}
 .footer{text-align:center;font-size:11.5px;color:#5c6370;padding:4px 0 22px}
