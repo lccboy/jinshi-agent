@@ -161,6 +161,39 @@ def handle_api(path, query):
     if path == "/api/intraday/latest":
         return ok(intraday_latest(), None, "intraday"), 200
 
+    if path == "/api/agent/summary":
+        # V0.4 Agent 聚合：一次返回当天信号摘要（涨停/策略/预警/事件/板块/资金流/个股名）
+        view, d = day_view(date_str)
+        if not view:
+            return {"error": "date not found"}, 404
+        pools = (view.get("pools") or {}).get("pools") or {}
+        alert_pool = pools.get("alert") or {}
+        candidate_pool = pools.get("candidate") or {}
+        events = view.get("events") or []
+        stocks = load_json("normalized", "stocks.json") or {}
+        names = {sid: (rec.get("name") or "") for sid, rec in stocks.items()}
+        summary = {
+            "date": d,
+            "market": view.get("market") or {},
+            "limit_up_count": (view.get("market") or {}).get("limit_up", len(view.get("limitup") or [])),
+            "limitup": view.get("limitup") or [],
+            "top_sectors": (view.get("sectors") or [])[:10],
+            "top_money_flow": (view.get("money_flow") or [])[:10],
+            "leading_reason": view.get("leading_reason") or [],
+            "strategy_top": view.get("strategy_top") or [],
+            "alert_count": len(alert_pool),
+            "candidate_count": len(candidate_pool),
+            "alert": alert_pool,
+            "candidate": candidate_pool,
+            "limitup_pool": pools.get("limitup") or {},
+            "event_counts": {},
+            "events": events[:50],
+            "stock_names": names,
+        }
+        for e in events:
+            summary["event_counts"][e.get("type", "")] = summary["event_counts"].get(e.get("type", ""), 0) + 1
+        return ok(summary, d, "engine"), 200
+
     return {"error": "not found"}, 404
 
 

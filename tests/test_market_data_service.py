@@ -20,7 +20,10 @@ def make_client(tmp_data, tmp_path):
            "limitup": [{"stock_id": "SZ300487", "reason": "存储", "boards": "首板", "concepts": ["存储"],
                         "primary": "kpl", "sourceCount": 4}],
            "money_flow": [{"name": "通信", "main": 100}], "leading_reason": [{"name": "存储", "reason": "x"}],
-           "strategy_top": [{"stock_id": "SZ300487", "score": 80, "models": {"breakout": 60}}], "pools": {}}
+           "strategy_top": [{"stock_id": "SZ300487", "score": 80, "models": {"breakout": 60}}],
+           "pools": {"pools": {"alert": {"SZ300487": {"score": 80, "status": "active"}},
+                               "candidate": {}, "limitup": {}, "ladder": {}, "watchlist": {}}},
+           "events": [{"ts": "2026-08-14T10:00:00", "type": "signal_hit", "stock_id": "SZ300487", "score": 80}]}
     with open(os.path.join(web, "index.json"), "w", encoding="utf-8") as fh:
         json.dump({"days": [{"date": "2026-08-14"}]}, fh)
     for name, content in (("day_2026-08-14.json", day), ("day_latest.json", day)):
@@ -140,3 +143,23 @@ def test_intraday_latest_missing(api):
     # 临时数据无 intraday 目录 → 200 空
     r = api.get("/intraday/latest")
     assert "data" in r
+
+
+def test_agent_summary(api):
+    # V0.4 Agent 聚合端点：一次返回当天信号摘要（涨停/策略/预警/事件/板块/资金流）
+    r = api.get("/agent/summary?date=2026-08-14")
+    data = r["data"]
+    assert r["meta"]["data_date"] == "2026-08-14"
+    assert data["limit_up_count"] == 73
+    assert data["strategy_top"][0]["stock_id"] == "SZ300487"
+    assert data["alert_count"] == 1
+    assert data["event_counts"]["signal_hit"] == 1
+    assert data["top_sectors"][0]["name"] == "芯片"
+    assert data["top_money_flow"][0]["name"] == "通信"
+    assert isinstance(data["stock_names"], dict)  # 无主数据时为空 dict，不报错
+
+
+def test_agent_summary_default_latest(api):
+    # 缺省 date → 最新交易日
+    r = api.get("/agent/summary")
+    assert r["meta"]["data_date"] == "2026-08-14"
