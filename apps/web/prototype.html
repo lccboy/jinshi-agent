@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>金十DSH · 工作台原型</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Microsoft YaHei",sans-serif;background:#0d1117;color:#c9d1d9;font-size:13px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+/* ===== 顶栏 ===== */
+.topbar{display:flex;align-items:center;gap:14px;padding:10px 16px;background:#161b22;border-bottom:1px solid #30363d;flex-shrink:0}
+.brand{font-size:16px;font-weight:800;color:#e6edf3;letter-spacing:.5px}
+.brand b{color:#f85149}
+.search{flex:1;max-width:420px;display:flex;align-items:center;background:#0d1117;border:1px solid #30363d;border-radius:7px;padding:6px 10px;color:#8b949e}
+.search input{flex:1;background:none;border:none;outline:none;color:#e6edf3;font-size:13px;margin-left:6px}
+.search .kbd{font-size:10px;border:1px solid #30363d;border-radius:4px;padding:0 4px;color:#5c6370}
+.date{background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#c9d1d9;padding:6px 10px;font-size:12.5px}
+.hint{color:#5c6370;font-size:11px}
+/* ===== 主体三栏 ===== */
+.body{flex:1;display:flex;min-height:0}
+/* 左索引 */
+.left{width:250px;flex-shrink:0;background:#11161d;border-right:1px solid #21262d;display:flex;flex-direction:column;min-height:0}
+.idx-tabs{display:flex;gap:2px;padding:8px 8px 6px;border-bottom:1px solid #21262d}
+.idx-tab{flex:1;padding:6px 0;text-align:center;border-radius:6px;font-size:12.5px;color:#8b949e;cursor:pointer;border:1px solid transparent}
+.idx-tab:hover{color:#c9d1d9}
+.idx-tab.on{background:#1f2937;color:#e6edf3;border-color:#30363d}
+.idx-tools{display:flex;gap:6px;padding:8px}
+.idx-tools input{flex:1;background:#0d1117;border:1px solid #21262d;border-radius:6px;padding:5px 8px;color:#e6edf3;font-size:12px;outline:none}
+.idx-tools select{background:#0d1117;border:1px solid #21262d;border-radius:6px;color:#8b949e;font-size:11.5px;padding:5px 4px}
+.idx-list{flex:1;overflow-y:auto;padding:0 6px 10px}
+.irow{padding:7px 9px;border-radius:7px;cursor:pointer;border:1px solid transparent;margin-bottom:2px}
+.irow:hover{background:#1f2937}
+.irow.sel{background:#1a2333;border-color:#2f6fdb}
+.irow .t1{display:flex;align-items:center;gap:6px}
+.irow .nm{flex:1;font-weight:600;color:#e6edf3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.irow .chg{font-size:11px}
+.chg.up{color:#f85149}.chg.dn{color:#3fb950}
+.irow .t2{display:flex;gap:5px;margin-top:4px;flex-wrap:wrap}
+.meta{font-size:10.5px;padding:0 5px;border-radius:6px;background:#1f2937;color:#8b949e}
+.meta.zt{background:#3d1d1d;color:#ffa198;border:1px solid #8b2f2f}
+.meta.hot{background:#221618;color:#f0b860;border:1px solid #4d2a28}
+.meta.neg{background:#12261a;color:#3fb950;border:1px solid #1f6f43}
+/* 中区 */
+.center{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0}
+.crumbs{display:flex;align-items:center;gap:6px;padding:8px 14px;border-bottom:1px solid #21262d;font-size:12px;color:#8b949e;flex-shrink:0}
+.crumbs .cr{cursor:pointer;color:#58a6ff}
+.crumbs .cr:hover{text-decoration:underline}
+.crumbs .sep{color:#30363d}
+.detail{flex:1;overflow-y:auto;padding:14px}
+.ent-head{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.ent-name{font-size:19px;font-weight:800;color:#e6edf3}
+.ent-sub{font-size:12px;color:#8b949e}
+.summary{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.sum{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:8px 14px;text-align:center;min-width:76px}
+.sum .n{font-size:17px;font-weight:700;color:#e6edf3}
+.sum .l{font-size:10.5px;color:#8b949e;margin-top:2px}
+.sum .n.up{color:#f85149}.sum .n.dn{color:#3fb950}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px}
+.chip{padding:4px 10px;border-radius:14px;font-size:12px;cursor:pointer;border:1px solid #30363d;background:#161b22;color:#8b949e}
+.chip:hover{border-color:#58a6ff;color:#c9d1d9}
+.chip.on{background:#1a2333;border-color:#2f6fdb;color:#5b8def}
+.chip.sub{font-size:11px;padding:3px 9px}
+.filters{display:flex;gap:6px;align-items:center;margin-bottom:10px}
+.ft{padding:4px 11px;border-radius:6px;font-size:11.5px;cursor:pointer;border:1px solid #21262d;color:#8b949e}
+.ft.on{background:#1f2937;color:#e6edf3;border-color:#30363d}
+.ft.zt{color:#ffa198}.ft.up6{color:#f85149}.ft.dn{color:#3fb950}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{padding:7px 9px;text-align:right;border-bottom:1px solid #21262d;white-space:nowrap}
+th{color:#8b949e;font-weight:600;background:#161b22}
+td.l,th.l{text-align:left}
+tbody tr:hover td{background:#1f2937}
+a.stk{color:#58a6ff;text-decoration:none;font-weight:600}
+a.stk:hover{text-decoration:underline}
+.b{display:inline-block;padding:1px 7px;border-radius:7px;font-size:10px;margin-left:3px;vertical-align:1px}
+.b-zt{background:#3d1d1d;border:1px solid #8b2f2f;color:#ffa198}
+.b-sec{background:#1a2333;border:1px solid #2f6fdb;color:#5b8def}
+.b-thm{background:#221618;border:1px solid #4d2a28;color:#f0b860}
+.muted{color:#5c6370}
+/* 右栏 */
+.right{width:290px;flex-shrink:0;background:#11161d;border-left:1px solid #21262d;overflow-y:auto;padding:12px}
+.r-title{font-size:12px;font-weight:700;color:#8b949e;margin-bottom:8px;letter-spacing:.5px}
+.r-card{background:#161b22;border:1px solid #21262d;border-radius:8px;padding:10px;margin-bottom:10px}
+.r-card .rc-h{font-weight:700;color:#e6edf3;font-size:13px;margin-bottom:6px}
+.r-tags{display:flex;flex-wrap:wrap;gap:5px}
+.r-tag{font-size:11px;padding:3px 8px;border-radius:6px;cursor:pointer;border:1px solid}
+.r-tag.sec{background:#1a2333;border-color:#2f6fdb;color:#5b8def}
+.r-tag.thm{background:#221618;border-color:#4d2a28;color:#f0b860}
+.r-tag:hover{filter:brightness(1.3)}
+.r-row{display:flex;justify-content:space-between;padding:4px 0;font-size:12px;border-bottom:1px solid #1a2029}
+.r-row:last-child{border-bottom:0}
+.r-row .k{color:#8b949e}
+.r-row .v{color:#e6edf3;font-weight:600}
+.placeholder{border:1px dashed #30363d;border-radius:8px;padding:18px;text-align:center;color:#5c6370;font-size:12px;margin-bottom:10px}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">金十<b>DSH</b> 工作台</div>
+  <div class="search"><span>🔍</span><input id="gsearch" placeholder="搜索题材 / 板块 / 个股…"><span class="kbd">/</span></div>
+  <select id="dateSel" class="date"></select>
+  <span class="hint">原型 · v0.3.0 设计稿 · 数据=2026-08-14 真实</span>
+</div>
+
+<div class="body">
+  <!-- 左：索引 -->
+  <div class="left">
+    <div class="idx-tabs">
+      <div class="idx-tab on" data-idx="theme">📚 题材</div>
+      <div class="idx-tab" data-idx="sector">📊 板块</div>
+      <div class="idx-tab" data-idx="pool">⭐ 个股池</div>
+    </div>
+    <div class="idx-tools">
+      <input id="idxSearch" placeholder="索引内搜索…">
+      <select id="sortSel"></select>
+    </div>
+    <div class="idx-list" id="idxList"></div>
+  </div>
+
+  <!-- 中：实体详情 -->
+  <div class="center">
+    <div class="crumbs" id="crumbs"></div>
+    <div class="detail" id="detail"></div>
+  </div>
+
+  <!-- 右：跨维关联 -->
+  <div class="right" id="right"></div>
+</div>
+
+<script>
+'use strict';
+var DAY, THEMES, SECTORS, SLIM, THEME_STOCKS;
+var idxMode = 'theme', selected = null;   // selected: {type:'theme'|'sector'|'stock', id}
+var crumb = [];                            // 面包屑栈
+var filter = 'all', conceptFilter = null;
+var sortKey = 'zt';
+
+function $(s){ return document.querySelector(s); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+function code6(sid){ return String(sid).slice(2); }
+function fetchJ(u){ return fetch(u).then(function(r){ if(!r.ok) throw Error('HTTP '+r.status); return r.json(); }); }
+
+function limCount(set){ var n=0; (DAY.limitup||[]).forEach(function(e){ if(set.indexOf(e.stock_id)>=0) n++; }); return n; }
+function ztSet(){ return (DAY.limitup||[]).map(function(e){ return e.stock_id; }); }
+
+/* ---------- 数据 ---------- */
+function loadAll(){
+  return Promise.all([
+    fetchJ('data/web/day_latest.json').then(function(d){ DAY=d; }),
+    fetchJ('data/web/themes.json').then(function(d){ THEMES=d; }),
+    fetchJ('data/web/sectors.json').then(function(d){ SECTORS=d; }),
+    fetchJ('data/web/stocks_slim.json').then(function(d){ SLIM=d; }),
+    fetchJ('data/web/theme_stocks.json').then(function(d){ THEME_STOCKS=d; })
+  ]).then(function(){
+    var sel=$('#dateSel'); sel.innerHTML=''; (DAY.date?[{date:DAY.date}]:[]).forEach(function(d){ var o=document.createElement('option'); o.value=d.date; o.textContent=d.date; sel.appendChild(o); });
+  });
+}
+
+/* ---------- 索引 ---------- */
+function themeList(){
+  var ids=Object.keys(THEMES), kw=($('#idxSearch').value||'').trim();
+  if(kw) ids=ids.filter(function(t){ return THEMES[t].name.indexOf(kw)>=0; });
+  ids.sort(function(a,b){
+    var ta=THEMES[a],tb=THEMES[b];
+    if(sortKey==='zt') return (limCount(THEME_STOCKS[a])-limCount(THEME_STOCKS[b]))||((tb.stock_count||0)-(ta.stock_count||0));
+    if(sortKey==='hot') return (tb.hot||0)-(ta.hot||0);
+    return (tb.stock_count||0)-(ta.stock_count||0);
+  });
+  return ids.map(function(t){
+    var th=THEMES[t], n=limCount(THEME_STOCKS[t]);
+    var sel= selected&&selected.type==='theme'&&selected.id===t ? ' sel':'';
+    return '<div class="irow'+sel+'" data-type="theme" data-id="'+esc(t)+'">'+
+      '<div class="t1"><span class="nm">'+esc(th.name)+'</span></div>'+
+      '<div class="t2">'+(n?'<span class="meta zt">涨停 '+n+'</span>':'')+
+      '<span class="meta">'+th.stock_count+'只</span>'+
+      '<span class="meta hot">🔥'+th.hot+'</span></div></div>';
+  }).join('')||'<div class="muted" style="padding:10px">无匹配</div>';
+}
+function sectorList(){
+  var secs=DAY.sectors||[], kw=($('#idxSearch').value||'').trim();
+  if(kw) secs=secs.filter(function(s){ return s.name.indexOf(kw)>=0; });
+  if(sortKey==='chg') secs=secs.slice().sort(function(a,b){ return (b.change||0)-(a.change||0); });
+  return secs.map(function(s){
+    var n=Object.keys(SLIM).filter(function(k){ return (SLIM[k].s||[]).indexOf(s.id)>=0; }).length;
+    var sel= selected&&selected.type==='sector'&&selected.id===s.id ? ' sel':'';
+    return '<div class="irow'+sel+'" data-type="sector" data-id="'+esc(s.id)+'">'+
+      '<div class="t1"><span class="nm">'+esc(s.name)+'</span>'+
+      '<span class="chg '+((s.change||0)>=0?'up':'dn')+'">'+fmtPct(s.change)+'</span></div>'+
+      '<div class="t2"><span class="meta zt">涨停 '+(limCount(ztSet().filter(function(){return false;})||[])||0)+'</span>'.replace('涨停 0','涨停 —')+
+      '<span class="meta">'+n+'只</span><span class="meta">'+fmtMoney(s.strength)+'</span></div></div>';
+  }).join('')||'<div class="muted" style="padding:10px">无匹配</div>';
+}
+function poolList(){
+  var lu=DAY.limitup||[];
+  return lu.map(function(e,i){
+    var sel= selected&&selected.type==='stock'&&selected.id===e.stock_id ? ' sel':'';
+    return '<div class="irow'+sel+'" data-type="stock" data-id="'+esc(e.stock_id)+'">'+
+      '<div class="t1"><span class="nm">'+esc(e.stock_id.slice(2))+'</span>'+
+      '<span class="meta zt">'+esc(e.boards||'涨停')+'</span></div>'+
+      '<div class="t2"><span class="meta">'+esc(e.reason||'')+'</span></div></div>';
+  }).join('');
+}
+function renderIndex(){
+  var html = idxMode==='theme'?themeList():(idxMode==='sector'?sectorList():poolList());
+  $('#idxList').innerHTML=html;
+  $('#idxList').querySelectorAll('.irow').forEach(function(r){
+    r.addEventListener('click', function(){ selectEntity(r.dataset.type, r.dataset.id); });
+  });
+  var sorts = idxMode==='theme' ? {zt:'涨停数',cnt:'成分数',hot:'热度'} : (idxMode==='sector'?{st:'强度',chg:'涨跌%'}:{});
+  var sel=$('#sortSel'); sel.innerHTML=''; Object.keys(sorts).forEach(function(k){ var o=document.createElement('option'); o.value=k; o.textContent=sorts[k]; sel.appendChild(o); }); sel.value=sortKey;
+}
+function renderSort(){ var k=$('#sortSel').value; if(sortKey!==k){ sortKey=k; renderIndex(); } }
+
+/* ---------- 选择/面包屑 ---------- */
+function selectEntity(type, id, pushCrumb){
+  if(pushCrumb && selected) crumb.push(selected);
+  selected={type:type,id:id};
+  renderAll();
+}
+function crumbBack(){
+  var p=crumb.pop();
+  if(p){ selected=p; } else { selected=null; }
+  renderAll();
+}
+function fmtMoney(n){ n=Number(n)||0; var a=Math.abs(n); if(a>=1e8) return (n/1e8).toFixed(1)+'亿'; if(a>=1e4) return (n/1e4).toFixed(1)+'万'; return n.toFixed(0); }
+function fmtPct(n){ n=Number(n); return isNaN(n)?'-':((n>=0?'+':'')+n.toFixed(2)+'%'); }
+
+/* ---------- 详情 ---------- */
+function themeDetail(t){
+  var th=THEMES[t], mem=THEME_STOCKS[t]||[], n=limCount(mem);
+  var cons=(th.sub_concepts||[]).slice(0,8).map(function(c){
+    return '<span class="chip sub'+(conceptFilter===c?' on':'')+'" data-con="'+esc(c)+'">'+esc(c)+'</span>';
+  }).join('');
+  var m=mem.slice(0,200);
+  var rows=m.map(function(sid){
+    var sl=SLIM[sid]||{n:sid,s:[],t:[]};
+    var sec=(sl.s||[]).slice(0,2).map(function(x){return '<span class="b b-sec">'+esc((SECTORS[x]||{}).name||x)+'</span>';}).join('');
+    var zt=ztSet().indexOf(sid)>=0?'<span class="b b-zt">涨停</span>':'';
+    return '<tr><td class="l"><a class="stk" href="#" data-stk="'+esc(sid)+'">'+esc(code6(sid))+'</a></td><td class="l">'+esc(sl.n)+sec+zt+'</td></tr>';
+  }).join('');
+  return '<div class="ent-head"><span class="ent-name">'+esc(th.name)+'</span><span class="ent-sub">题材 · 成分 '+th.stock_count+' · 概念 '+((th.sub_concepts||[]).length)+'</span></div>'+
+    '<div class="summary"><div class="sum"><div class="n up">'+n+'</div><div class="l">涨停</div></div>'+
+    '<div class="sum"><div class="n">'+th.stock_count+'</div><div class="l">成分股</div></div>'+
+    '<div class="sum"><div class="n hot" style="color:#f0b860">🔥'+th.hot+'</div><div class="l">热度</div></div></div>'+
+    '<div class="chips">'+cons+'</div>'+
+    (rows?'<div class="tblwrap"><table><thead><tr><th class="l">代码</th><th class="l">名称</th></tr></thead><tbody>'+rows+'</tbody></table></div>':'<div class="muted">无成分</div>');
+}
+function sectorDetail(s){
+  var sid=s.id, n=Object.keys(SLIM).filter(function(k){ return (SLIM[k].s||[]).indexOf(sid)>=0; });
+  var zt=limCount(n);
+  var subs=Object.keys(SECTORS).filter(function(x){ return SECTORS[x].parent_id===sid; });
+  var subChips=subs.slice(0,12).map(function(x){ return '<span class="chip sub" data-go="sector" data-id="'+esc(x)+'">'+esc(SECTORS[x].name)+'</span>'; }).join('');
+  var rows=n.slice(0,200).map(function(k){
+    var sl=SLIM[k]; var z=(ztSet().indexOf(k)>=0)?'<span class="b b-zt">涨停</span>':'';
+    return '<tr><td class="l"><a class="stk" href="#" data-stk="'+esc(k)+'">'+esc(code6(k))+'</a></td><td class="l">'+esc(sl.n)+z+'</td></tr>';
+  }).join('');
+  return '<div class="ent-head"><span class="ent-name">'+esc(s.name)+'</span><span class="ent-sub">板块 · 强度 '+fmtMoney(s.strength)+' · 涨跌 '+fmtPct(s.change)+'</span></div>'+
+    '<div class="summary"><div class="sum"><div class="n up">'+zt+'</div><div class="l">涨停</div></div>'+
+    '<div class="sum"><div class="n">'+n.length+'</div><div class="l">个股数</div></div>'+
+    '<div class="sum"><div class="n '+(s.mainNet>=0?'up':'dn')+'">'+fmtMoney(s.mainNet)+'</div><div class="l">主力净额</div></div>'+
+    '<div class="sum"><div class="n">—</div><div class="l">&gt;6%家数*</div></div></div>'+
+    (subChips?'<div class="chips"><span class="muted" style="padding:4px 0">子板块:</span>'+subChips+'</div>':'')+
+    '<div class="placeholder">板块日内分时图（canvas，实时采集接入后显示）</div>'+
+    '<div class="filters"><span class="ft on" data-f="all">全部</span><span class="ft zt" data-f="zt">涨停</span><span class="ft up6" data-f="up6">&gt;6%</span><span class="ft dn" data-f="dn">下跌</span><span class="muted" style="margin-left:auto">*需 quotes 数据</span></div>'+
+    (rows?'<table><thead><tr><th class="l">代码</th><th class="l">名称</th></tr></thead><tbody>'+rows+'</tbody></table>':'<div class="muted">无成分</div>');
+}
+function stockDetail(sid){
+  var sl=SLIM[sid]||{n:sid,s:[],t:[]};
+  var lu=(DAY.limitup||[]).filter(function(e){ return e.stock_id===sid; })[0];
+  var secTags=(sl.s||[]).map(function(x){return '<span class="chip" data-go="sector" data-id="'+esc(x)+'">'+esc((SECTORS[x]||{}).name||x)+'</span>';}).join('');
+  var thTags=(sl.t||[]).slice(0,6).map(function(x){return '<span class="chip" data-go="theme" data-id="'+esc(x)+'">'+esc((THEMES[x]||{}).name||x)+'</span>';}).join('');
+  return '<div class="ent-head"><span class="ent-name">'+esc(sl.n)+'</span><span class="ent-sub">'+esc(sid)+' · '+(lu?'<span class="b b-zt">'+esc(lu.boards||'涨停')+'</span>':'未涨停')+'</span></div>'+
+    '<div class="chips">'+secTags+thTags+'</div>'+
+    (lu?'<div class="r-card"><div class="rc-h">涨停原因（'+lu.sourceCount+'源）</div><div style="line-height:1.7;color:#8b949e">'+esc(lu.reason||'')+'</div></div>':'<div class="muted">无涨停记录</div>');
+}
+
+/* ---------- 右栏 ---------- */
+function renderRight(){
+  var h='<div class="r-title">跨维关联</div>';
+  if(!selected){
+    var lu=DAY.limitup||[];
+    h+='<div class="r-card"><div class="rc-h">今日盘面</div>'+
+      '<div class="r-row"><span class="k">涨停</span><span class="v up">'+lu.length+'</span></div>'+
+      '<div class="r-row"><span class="k">连板最高</span><span class="v">'+(DAY.limitup||[]).reduce(function(a,e){var m=(e.boards||'').match(/\d+/);return Math.max(a,m?+m[0]:1);},1)+'</span></div>'+
+      '</div><div class="r-card"><div class="rc-h">资金流 TOP5</div>'+
+      ((DAY.money_flow||[]).slice(0,5).map(function(f){return '<div class="r-row"><span class="k">'+esc(f.name)+'</span><span class="v '+(f.main>=0?'':'dn')+'">'+fmtMoney(f.main)+'</span></div>';}).join('')||'<div class="muted">无</div>')+'</div>';
+  } else if(selected.type==='stock'){
+    var sl=SLIM[selected.id]||{n:selected.id,s:[],t:[]};
+    var secs=(sl.s||[]).map(function(x){return '<span class="r-tag sec" data-go="sector" data-id="'+esc(x)+'">'+esc((SECTORS[x]||{}).name||x)+'</span>';}).join('');
+    var ths=(sl.t||[]).slice(0,8).map(function(x){return '<span class="r-tag thm" data-go="theme" data-id="'+esc(x)+'">'+esc((THEMES[x]||{}).name||x)+'</span>';}).join('');
+    h+='<div class="r-card"><div class="rc-h">'+esc(sl.n)+' · 双维归属</div><div class="r-tags">'+(secs||'<span class="muted">无板块</span>')+'</div><div class="r-tags" style="margin-top:6px">'+(ths||'<span class="muted">无题材</span>')+'</div></div>'+
+      '<div class="r-card"><div class="rc-h">关联板块 TOP（成分重合）</div><div class="r-tags" id="relSec"></div></div>';
+  } else if(selected.type==='theme'){
+    var mem=THEME_STOCKS[selected.id]||[];
+    var cnt={};
+    mem.forEach(function(sid){ (SLIM[sid]||{}).s.forEach(function(x){ cnt[x]=(cnt[x]||0)+1; }); });
+    var top=Object.keys(cnt).sort(function(a,b){return cnt[b]-cnt[a];}).slice(0,8);
+    h+='<div class="r-card"><div class="rc-h">'+esc((THEMES[selected.id]||{}).name)+' 关联板块 TOP</div><div class="r-tags">'+
+      top.map(function(x){return '<span class="r-tag sec" data-go="sector" data-id="'+esc(x)+'">'+esc((SECTORS[x]||{}).name||x)+' <b>'+cnt[x]+'</b></span>';}).join('')+'</div></div>';
+  } else if(selected.type==='sector'){
+    var n=Object.keys(SLIM).filter(function(k){return (SLIM[k].s||[]).indexOf(selected.id)>=0;});
+    var cnt={};
+    n.forEach(function(sid){ (SLIM[sid]||{}).t.forEach(function(x){ cnt[x]=(cnt[x]||0)+1; }); });
+    var top=Object.keys(cnt).sort(function(a,b){return cnt[b]-cnt[a];}).slice(0,8);
+    h+='<div class="r-card"><div class="rc-h">'+esc(selected.name)+' 关联题材 TOP</div><div class="r-tags">'+
+      top.map(function(x){return '<span class="r-tag thm" data-go="theme" data-id="'+esc(x)+'">'+esc((THEMES[x]||{}).name||x)+' <b>'+cnt[x]+'</b></span>';}).join('')+'</div></div>';
+  }
+  $('#right').innerHTML=h;
+}
+
+/* ---------- 渲染 ---------- */
+function renderCrumbs(){
+  var h='<span class="cr" data-cr="home">工作台</span>';
+  crumb.forEach(function(c){
+    var nm = c.type==='theme'?(THEMES[c.id]||{}).name:(c.type==='sector'?(SECTORS[c.id]||{}).name:((SLIM[c.id]||{}).n||c.id));
+    h+='<span class="sep">/</span><span class="cr" data-cr="'+c.type+'" data-id="'+esc(c.id)+'">'+esc(nm)+'</span>';
+  });
+  if(selected){
+    var nm = selected.type==='theme'?(THEMES[selected.id]||{}).name:(selected.type==='sector'?(SECTORS[selected.id]||{}).name:((SLIM[selected.id]||{}).n||selected.id));
+    h+='<span class="sep">/</span><span style="color:#e6edf3;font-weight:600">'+esc(nm)+'</span>';
+  }
+  $('#crumbs').innerHTML=h;
+}
+function renderDetail(){
+  var h;
+  if(!selected){ h='<div class="placeholder">选择左侧任一实体开始浏览（题材 / 板块 / 个股池）</div>'; }
+  else if(selected.type==='theme') h=themeDetail(selected.id);
+  else if(selected.type==='sector') h=sectorDetail(selected.id);
+  else h=stockDetail(selected.id);
+  $('#detail').innerHTML=h;
+  $('#detail').querySelectorAll('[data-stk]').forEach(function(a){ a.addEventListener('click',function(e){ e.preventDefault(); selectEntity('stock', a.dataset.stk, true); }); });
+  $('#detail').querySelectorAll('[data-go]').forEach(function(c){ c.addEventListener('click',function(){ selectEntity(c.dataset.go, c.dataset.id, true); }); });
+  $('#detail').querySelectorAll('[data-con]').forEach(function(c){ c.addEventListener('click',function(){ conceptFilter = conceptFilter===c.dataset.con?null:c.dataset.con; renderDetail(); }); });
+  $('#detail').querySelectorAll('[data-f]').forEach(function(f){ f.addEventListener('click',function(){ filter=f.dataset.f; $('#detail').querySelectorAll('[data-f]').forEach(function(x){x.classList.toggle('on',x===f);}); }); });
+}
+function renderAll(){ renderCrumbs(); renderDetail(); renderRight(); }
+
+/* ---------- 绑定 ---------- */
+$('#gsearch').addEventListener('keydown', function(e){
+  if(e.key==='Enter'){ var q=this.value.trim(); if(!q) return;
+    if(THEMES && THEMES[q]) return selectEntity('theme', q, true);
+    if(SECTORS && SECTORS[q]) return selectEntity('sector', q, true);
+    if(SLIM && SLIM[q]) return selectEntity('stock', q, true);
+    var t=Object.keys(THEMES||{}).filter(function(x){return THEMES[x].name===q;})[0];
+    var s=Object.keys(SECTORS||{}).filter(function(x){return SECTORS[x].name===q;})[0];
+    if(t) selectEntity('theme', t, true); else if(s) selectEntity('sector', s, true);
+  }
+});
+$('#idxSearch').addEventListener('input', renderIndex);
+$('#sortSel').addEventListener('change', renderSort);
+document.querySelectorAll('.idx-tab').forEach(function(t){ t.addEventListener('click', function(){
+  document.querySelectorAll('.idx-tab').forEach(function(x){x.classList.remove('on');}); t.classList.add('on');
+  idxMode=t.dataset.idx; selected=null; crumb=[]; sortKey='zt'; renderIndex(); renderAll();
+}); });
+document.addEventListener('click', function(e){
+  var go=e.target.closest('[data-go]');
+  if(go){ selectEntity(go.dataset.go, go.dataset.id, true); return; }
+  var cr=e.target.closest('[data-cr]');
+  if(cr){ if(cr.dataset.cr==='home'){ selected=null; crumb=[]; } else if(cr.dataset.cr==='stock'||cr.dataset.cr==='theme'||cr.dataset.cr==='sector'){ selected={type:cr.dataset.cr,id:cr.dataset.id}; } renderAll(); }
+});
+document.addEventListener('keydown', function(e){ if(e.key==='/'){ e.preventDefault(); $('#gsearch').focus(); } if(e.key==='Escape'){ if(crumb.length) crumbBack(); } });
+// 右栏标签联动
+$('#right').addEventListener('click', function(e){ var go=e.target.closest('[data-go]'); if(go) selectEntity(go.dataset.go, go.dataset.id, true); });
+// 关联板块（个股右栏）填充
+function fillRel(){ if(selected && selected.type==='stock'){ var sl=SLIM[selected.id]||{}; var cnt={}; (sl.t||[]).forEach(function(x){ (THEME_STOCKS[x]||[]).forEach(function(s){ (SLIM[s]||{}).s.forEach(function(sx){ if(sx!==selected.id) cnt[sx]=(cnt[sx]||0)+1; }); }); }); var top=Object.keys(cnt).sort(function(a,b){return cnt[b]-cnt[a];}).slice(0,8); var box=$('#relSec'); if(box) box.innerHTML=top.map(function(x){return '<span class="r-tag sec" data-go="sector" data-id="'+esc(x)+'">'+esc((SECTORS[x]||{}).name||x)+'</span>';}).join(''); } }
+
+loadAll().then(function(){ renderIndex(); renderAll(); });
+</script>
+</body>
+</html>
