@@ -36,12 +36,19 @@ def parse_day_file(path):
     return bars
 
 
+_GBBQ_CACHE = None
+
+
 def _load_gbbq():
-    """加载 gbbq 权息事件（category=1 真实除权除息）。返回 (loaded, {code: [events]})。"""
+    """加载 gbbq 权息事件（category=1 真实除权除息）。结果模块级缓存，避免逐股重复解析。"""
+    global _GBBQ_CACHE
+    if _GBBQ_CACHE is not None:
+        return _GBBQ_CACHE
     try:
         from pytdx.reader.gbbq_reader import GbbqReader  # 可选依赖
     except Exception:
-        return False, {}
+        _GBBQ_CACHE = (False, {})
+        return _GBBQ_CACHE
 
     # 候选根目录：env TDX_ROOT 优先，其次本机已知通达信安装
     roots = [os.environ.get("TDX_ROOT", "")]
@@ -56,11 +63,13 @@ def _load_gbbq():
         ]
     path = next((p for p in candidates if os.path.isfile(p)), None)
     if not path:
-        return False, {}
+        _GBBQ_CACHE = (False, {})
+        return _GBBQ_CACHE
     try:
         frame = GbbqReader().get_df(path)
     except Exception:
-        return False, {}
+        _GBBQ_CACHE = (False, {})
+        return _GBBQ_CACHE
 
     events = {}
     for row in frame.itertuples(index=False):
@@ -86,7 +95,8 @@ def _load_gbbq():
         ))
     for values in events.values():
         values.sort(key=lambda item: item[0])
-    return True, events
+    _GBBQ_CACHE = (True, events)
+    return _GBBQ_CACHE
 
 
 def _gbbq_adjust(bars, events):
@@ -181,7 +191,25 @@ def main(argv=None):
     ap.add_argument("--out", default="data/kline", help="输出目录（默认 data/kline）")
     ap.add_argument("--code", help="6 位代码（如 600000）")
     ap.add_argument("--market", default="sh", choices=["sh", "sz", "bj"], help="市场目录（默认 sh）")
+    ap.add_argument("--universe-file", help="批量：每行一个 6 位代码（自动按代码前缀选市场）")
+    ap.add_argument("--limit", type=int, default=0, help="批量上限（0=全部）")
     args = ap.parse_args(argv)
+
+    if args.universe_file:
+        with open(args.universe_file, encoding="utf-8") as fh:
+            codes = [ln.strip() for ln in fh if ln.strip()]
+        if args.limit:
+            codes = codes[: args.limit]
+        done, failed = 0, []
+        for code in codes:
+            market = "sh" if code.startswith(("60", "68")) else ("sz" if code.startswith(("00", "30")) else "bj")
+            sid, n = sync_stock(code, market, args.vipdoc, args.out)
+            if n:
+                done += 1
+            else:
+                failed.append(code)
+        print(f"[OK] 批量同步 {done}/{len(codes)} 只；失败 {len(failed)}: {failed[:10]}")
+        return 0 if not failed else 2
 
     if args.code:
         sid, n = sync_stock(args.code, args.market, args.vipdoc, args.out)

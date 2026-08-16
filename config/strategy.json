@@ -1,0 +1,41 @@
+{
+  "version": "1.0",
+  "data": { "vipdoc": "H:\\MPV1.240322\\Tdx MPV V1.24++\\vipdoc", "gbbq": true, "rs_index": "SH000001" },
+  "models": {
+    "reversal": { "enabled": true, "family": "reversal" },
+    "breakout": { "enabled": true, "family": "breakout" },
+    "weekly": { "enabled": true, "family": "trend" },
+    "dwm": { "enabled": true, "family": "trend" },
+    "lowstart": { "enabled": true, "family": "reversal" },
+    "volbrk": { "enabled": true, "family": "breakout" },
+    "perfect_ten": { "enabled": true, "family": "money", "params": { "min_conditions": 7 } },
+    "golden_vol": { "enabled": true, "family": "money", "params": { "window": 3, "vol_mult": 1.2 } },
+    "hub_breakout": { "enabled": true, "family": "breakout" },
+    "div_reversal": { "enabled": true, "family": "reversal" },
+    "ma_momentum": { "enabled": true, "family": "trend" },
+    "bottom_rev": { "enabled": true, "family": "reversal" },
+    "multi_factor": { "enabled": true, "family": "trend" },
+    "sub_low": { "enabled": true, "family": "sub" },
+    "sub_trend_vol": { "enabled": true, "family": "sub" },
+    "sub_breakout": { "enabled": true, "family": "sub" },
+    "sub_main": { "enabled": true, "family": "sub" }
+  },
+  "buy_point": {
+    "filter": { "min_rr": 3.0, "max_stop_pct": 4 },
+    "weights": { "bias": 30, "chg": 12, "vol": 13, "stop_dist": 18, "rr": 20, "close_pos": 4, "cross_family": 12 },
+    "bell_ranges": {
+      "bias5": [-0.005, 0.025, -0.04, 0.07],
+      "bias10": [0, 0.045, -0.03, 0.10],
+      "chg": [0.01, 0.05, -0.03, 0.098],
+      "vol": [1.2, 2.6, 0.7, 5.0],
+      "rr": [3, 18, 1.2, 40]
+    }
+  },
+  "stacking": {
+    "enabled": true,
+    "weights": { "sector_strength": 25, "money_flow": 25, "leading_reason": 20 },
+    "thresholds": { "sector_strength_min": 4000, "money_flow_rank_top": 30, "leading_reason_min_zt": 0 },
+    "stars": { "silver": 3, "gold": 4 }
+  },
+  "alert_pool": { "top_n": 30, "min_score": 60 }
+}
