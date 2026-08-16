@@ -28,7 +28,8 @@ data/
 │   └── manifest.json       #   各股票最后同步日期
 ├── normalized/
 │   ├── stocks.json          # 个股主数据（开盘啦 API 采集，TDX/题材库补充校验）
-│   ├── themes.json          # 题材字典（含子概念）
+│   ├── themes.json          # 题材字典（含子概念、热度、成分数）
+│   ├── theme_stocks.json    # 题材→成分股索引（{theme_id: [stock_id]}，题材库 UI 展开用）
 │   └── sectors.json         # 板块/子板块字典（parent_id 表达层级，标注概念/行业类型）
 ├── facts/
 │   └── 2026-08-14/
@@ -104,10 +105,13 @@ data/
 {
   "T01": {
     "theme_id": "T01", "name": "液冷", "source": "kpl",
-    "sub_concepts": ["冷板式", "浸没式"], "hot": 123, "updated_at": "2026-08-16"
+    "sub_concepts": ["冷板式", "浸没式"], "hot": 123, "stock_count": 45, "updated_at": "2026-08-16"
   }
 }
 ```
+
+- 成分股与题材的完整映射在 `data/normalized/theme_stocks.json`（`{theme_id: [stock_id]}`），题材库 UI 直接展开；个股侧回写 `stocks.json` 的 `current.themes`
+- `hot` 取成分股热度均值，`stock_count` 为成分股数；题材库接入见 `services/collector/theme_collector.py`
 
 ### 3.3 `sectors.json` 板块/子板块字典
 
