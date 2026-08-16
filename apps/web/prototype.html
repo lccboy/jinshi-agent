@@ -19,6 +19,7 @@
   --c-code-fg:#e24b4a;--c-link:#e24b4a;--c-gold:#e6a817;
   --shadow-row:0 0 6px rgba(226,75,74,0.15);
   --gradient-pill:linear-gradient(135deg,#e24b4a,#c0392b);
+  --c-topbar:var(--gradient-pill);
   --c-warn-bg:#fff7e6;--c-warn-border:#ffd591;--c-warn-text:#8a5a00;
 }
 [data-theme="dark"]{
@@ -34,6 +35,7 @@
   --c-code-fg:#E05555;--c-link:#E05555;--c-gold:#F0B860;
   --shadow-row:0 0 12px rgba(224,85,85,0.20);
   --gradient-pill:linear-gradient(135deg,#E05555,#CC4444);
+  --c-topbar:linear-gradient(135deg,#1A1F2E 0%,#251A26 100%);
   --c-warn-bg:#26221a;--c-warn-border:#4d3d28;--c-warn-text:#E8A043;
 }
 *{margin:0;padding:0;box-sizing:border-box}
@@ -46,7 +48,7 @@ a:hover{text-decoration:underline}
 
 /* ===== 左栏 280px ===== */
 .sidebar{width:280px;flex-shrink:0;background:var(--c-sidebar-bg);border-right:1px solid var(--c-border);display:flex;flex-direction:column}
-.sidebar-top{background:var(--gradient-pill);color:var(--c-mainbar-text);padding:13px 16px;display:flex;align-items:center;justify-content:space-between}
+.sidebar-top{background:var(--c-topbar);color:var(--c-mainbar-text);padding:13px 16px;display:flex;align-items:center;justify-content:space-between}
 .sidebar-top .left h2{font-size:15px;font-weight:600;letter-spacing:.3px}
 .sidebar-top .left .meta{font-size:11.5px;opacity:.85;margin-top:3px}
 .theme-toggle{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;font-size:14px;width:30px;height:30px;border-radius:8px;cursor:pointer;flex-shrink:0}
@@ -79,7 +81,7 @@ a:hover{text-decoration:underline}
 
 /* ===== 中栏 ===== */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0}
-.main-bar{background:var(--gradient-pill);color:var(--c-mainbar-text);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0}
+.main-bar{background:var(--c-topbar);color:var(--c-mainbar-text);padding:10px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-shrink:0}
 .main-bar h1{font-size:16px;font-weight:500;letter-spacing:.3px}
 .main-bar .meta{font-size:11.5px;opacity:.85}
 .content{flex:1;overflow-y:auto;padding:16px}
@@ -365,10 +367,11 @@ document.querySelectorAll('.idx-btn').forEach(function(b){ b.addEventListener('c
   idxMode=b.dataset.idx; sortKey = idxMode==='theme'?'zt':'st'; selected=null; renderSortBar(); renderIndex(); renderAll();
 }); });
 
-/* ===== 主题切换 ===== */
+/* ===== 主题切换（默认暗色） ===== */
 function applyTheme(t){ document.documentElement.dataset.theme = t; $('#themeToggle').textContent = t==='dark'?'☀️':'🌙'; }
 function toggleTheme(){ var t = document.documentElement.dataset.theme==='dark'?'light':'dark'; applyTheme(t); try{ localStorage.setItem('dsh_theme', t); }catch(e){} }
-try{ var saved = localStorage.getItem('dsh_theme'); if(saved) applyTheme(saved); }catch(e){}
+var saved = null; try{ saved = localStorage.getItem('dsh_theme'); }catch(e){}
+applyTheme(saved === 'light' ? 'light' : 'dark');   // 默认暗色，仅显式保存过 light 才用亮色
 var qTheme = (location.search.match(/theme=(\w+)/)||[])[1];
 if(qTheme) applyTheme(qTheme === 'dark' ? 'dark' : 'light');
 $('#themeToggle').addEventListener('click', toggleTheme);
