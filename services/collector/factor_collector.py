@@ -230,6 +230,7 @@ def main(argv=None):
     ap.add_argument("--date", default="", help="数据日期（默认取主数据 manifest 或今日）")
     ap.add_argument("--out", default="data", help="数据根目录（默认 data，facts/normalized 位于其下）")
     ap.add_argument("--sectors-json", help="KPL 板块字典路径（normalized/sectors.json），缺省读 --out/normalized")
+    ap.add_argument("--kpl-daily", help="KPL 日数据文件（kpl_<date>.json）→ 无板块字典时现场构建（id/name/type）")
     ap.add_argument("--aliases", default=os.path.join(os.path.dirname(__file__), "..", "..", "config", "sector_aliases.json"),
                     help="别名表路径（默认 config/sector_aliases.json）")
     args = ap.parse_args(argv)
@@ -239,11 +240,21 @@ def main(argv=None):
     print(f"[OK] 东财板块 {len(flows)} | 选股宝板块 {len(reasons)}")
 
     kpl_path = args.sectors_json or os.path.join(args.out, "normalized", "sectors.json")
-    if not os.path.exists(kpl_path):
-        print(f"[WARN] 未找到板块字典 {kpl_path}，跳过映射与写盘")
+    if not os.path.exists(kpl_path) and args.kpl_daily:
+        # 从 KPL 日数据构建板块字典（sectors + sub 合并）
+        with open(args.kpl_daily, encoding="utf-8") as fh:
+            daily = json.load(fh)
+        kpl_sectors = {str(s["id"]): {"name": s["name"]} for s in daily.get("sectors", [])}
+        for subs in daily.get("sub", {}).values():
+            for s in subs:
+                kpl_sectors.setdefault(str(s["id"]), {"name": s["name"]})
+        kpl_path = None
+    elif os.path.exists(kpl_path):
+        with open(kpl_path, encoding="utf-8") as fh:
+            kpl_sectors = json.load(fh)
+    else:
+        print(f"[WARN] 未找到板块字典 {kpl_path}，请用 --sectors-json 或 --kpl-daily 提供")
         return 1
-    with open(kpl_path, encoding="utf-8") as fh:
-        kpl_sectors = json.load(fh)
 
     mapping, report = build_sector_map(kpl_sectors, flows, reasons, load_aliases(args.aliases))
     print(f"[MAP] 东财命中 {report['em_matched']}/{len(kpl_sectors)}（别名 {report['em_alias_hit']}）"
