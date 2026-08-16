@@ -135,7 +135,7 @@ def write_master_lib(norm_dir, web_dir):
     """主数据懒加载库 → data/web/：themes/theme_stocks/sectors 拷贝 + stocks_slim 生成，全部 .json + .gz。"""
     os.makedirs(web_dir, exist_ok=True)
     pairs = []
-    for name in ("themes.json", "theme_stocks.json", "sectors.json"):
+    for name in ("themes.json", "theme_stocks.json", "themes_tree.json", "sectors.json"):
         src = os.path.join(norm_dir, name)
         if not os.path.exists(src):
             continue

@@ -6,7 +6,8 @@ from services.collector.theme_collector import merge_themes_into_master, parse_t
 
 def test_parse_theme_dump():
     dump = {"9": {"n": "光刻机概念", "l": 1,
-                  "t": [{"n1": "电子特气", "st": [], "l2": [{"n2": "二氯二氢硅", "st": []}]}],
+                  "t": [{"n1": "电子特气", "st": [{"c": "002971", "r": "试生产"}],
+                         "l2": [{"n2": "二氯二氢硅", "st": [{"c": "603938", "r": "批量"}]}]}],
                   "s": [{"c": "600895", "n": "张江高科", "h": 386},
                         {"c": "300487", "n": "蓝晓科技", "h": 100}]}}
     themes, theme_stocks, names = parse_theme_dump(dump, "2026-08-16")
@@ -18,6 +19,11 @@ def test_parse_theme_dump():
     assert t["source"] == "题材库" and t["updated_at"] == "2026-08-16"
     assert theme_stocks["9"] == ["SH600895", "SZ300487"]
     assert names["SH600895"] == "张江高科"
+    # 概念层级树：n1 → l2 → 成分股
+    assert t["tree"][0]["n1"] == "电子特气"
+    assert t["tree"][0]["st"] == ["SZ002971"]
+    assert t["tree"][0]["l2"][0]["n2"] == "二氯二氢硅"
+    assert t["tree"][0]["l2"][0]["st"] == ["SH603938"]
 
 
 def test_parse_theme_dump_ignores_empty():

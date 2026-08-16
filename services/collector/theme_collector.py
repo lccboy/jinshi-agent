@@ -22,24 +22,27 @@ DEFAULT_SOURCE = r"H:\projects\金十AI题材库\.deploy_backups\pre_l2_sweep_20
 def parse_theme_dump(dump, updated_at=None):
     """题材库 dump → (themes, theme_stocks, stock_names)。
 
-    - 概念树 `t[].n1` + `t[].l2[].n2` 展平为 sub_concepts
+    - 概念树 `t[].n1` + `t[].l2[].n2` 展平为 sub_concepts，并保留完整树（tree: [{n1, st, l2:[{n2, st}]}]）
     - 成分 `s[].c`（6 位代码）→ stock_id；`s[].h` 均值作题材热度
     """
     updated_at = updated_at or datetime.date.today().strftime("%Y-%m-%d")
     themes, theme_stocks, stock_names = {}, {}, {}
     for tid, v in dump.items():
-        sub = []
+        sub, tree = [], []
         for t in v.get("t") or []:
             if t.get("n1"):
                 sub.append(t["n1"])
-            for l2 in t.get("l2") or []:
-                if l2.get("n2"):
-                    sub.append(l2["n2"])
+            l2 = []
+            for x in t.get("l2") or []:
+                if x.get("n2"):
+                    sub.append(x["n2"])
+                l2.append({"n2": x.get("n2", ""), "st": _codes(x.get("st"))})
+            tree.append({"n1": t.get("n1", ""), "st": _codes(t.get("st")), "l2": l2})
         members = v.get("s") or []
         hot = round(sum((m.get("h") or 0) for m in members) / len(members)) if members else 0
         themes[str(tid)] = {"theme_id": str(tid), "name": str(v.get("n", "")), "source": "题材库",
                             "sub_concepts": sub, "hot": hot, "stock_count": len(members),
-                            "updated_at": updated_at}
+                            "tree": tree, "updated_at": updated_at}
         codes = []
         for m in members:
             c = str(m.get("c", "") or "").strip().zfill(6)
@@ -49,6 +52,16 @@ def parse_theme_dump(dump, updated_at=None):
                 stock_names.setdefault(sid, str(m.get("n", "")))
         theme_stocks[str(tid)] = codes
     return themes, theme_stocks, stock_names
+
+
+def _codes(rows):
+    """概念成分行 [{c, r}] → [stock_id]。"""
+    out = []
+    for m in rows or []:
+        c = str(m.get("c", "") or "").strip().zfill(6)
+        if len(c) == 6 and c.isdigit():
+            out.append(stock_id(c))
+    return out
 
 
 def merge_themes_into_master(stocks, themes, theme_stocks, stock_names, updated_at=None):
@@ -80,6 +93,10 @@ def collect(source, out_dir):
         json.dump(themes, fh, ensure_ascii=False, indent=2)
     with open(os.path.join(out_dir, "theme_stocks.json"), "w", encoding="utf-8") as fh:
         json.dump(theme_stocks, fh, ensure_ascii=False, indent=2)
+    # 概念层级树（主概念 n1 → 细分概念 n2 → 成分股），供"概念层级表格"渲染
+    with open(os.path.join(out_dir, "themes_tree.json"), "w", encoding="utf-8") as fh:
+        json.dump({tid: {"name": t["name"], "tree": t["tree"]} for tid, t in themes.items()},
+                  fh, ensure_ascii=False, indent=2)
 
     stocks_path = os.path.join(out_dir, "stocks.json")
     stocks = {}
