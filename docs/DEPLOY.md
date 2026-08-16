@@ -1,6 +1,17 @@
 # 金十DSH Windows Nginx 部署说明
 
-目标服务器目录：`C:\nginx\html\DSH`
+目标服务器目录：`C:\nginx\html\DSH`（本机部署时 nginx 监听 **8088**，内网访问 `http://<IP>:8088/DSH/`）
+
+> 端口说明：80 为特权端口，在沙箱/部分防火墙环境无法监听；本机部署统一用 8088。
+> 若环境允许，把 `deploy/nginx-dsh.conf` 中 `listen 8088` 改为 `listen 80` 即可。
+
+## 快速部署（本机）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy\deploy-local.ps1
+```
+
+一键完成：构建 dist → 复制到 `C:\nginx\html\DSH` → 安装 nginx 配置（旧配置自动备份）→ 启动 API 服务(8787) + nginx(8088) → 打印验收结果。
 
 ## 部署拓扑
 
@@ -97,7 +108,9 @@ Rename-Item -LiteralPath .\DSH.backup.时间 .\DSH
 
 ## nginx 配置
 
-在 `nginx.conf` 的 server 块中加入：
+配置模板：`deploy/nginx-dsh.conf`（复制到 `C:\nginx\conf\nginx.conf`，`deploy-local.ps1` 自动安装并备份旧配置）。
+
+核心 server 块：
 
 ```nginx
 gzip_static on;
@@ -110,21 +123,20 @@ location /DSH/ {
 }
 
 # Web 视图层：历史日文件不可变 → 永久缓存（切换历史日期 0 网络请求）
-location ~* ^/DSH/data/web/day_\d{8}\.json(\.gz)?$ {
+location ~* "^/DSH/data/web/day_[0-9]{8}\.json(\.gz)?$" {
     alias C:/nginx/html/DSH/data/web/;
     add_header Cache-Control "public, max-age=31536000, immutable";
 }
 location = /DSH/data/web/index.json {
+    alias C:/nginx/html/DSH/data/web/index.json;
     add_header Cache-Control "public, max-age=300";
 }
 location = /DSH/data/web/day_latest.json {
+    alias C:/nginx/html/DSH/data/web/day_latest.json;
     add_header Cache-Control "no-cache";
 }
-```
 
-新增 API 后追加：
-
-```nginx
+# API 反代（V0.2+）
 location /DSH/api/ {
     proxy_pass http://127.0.0.1:8787/api/;
     proxy_set_header Host $host;
@@ -133,14 +145,14 @@ location /DSH/api/ {
 }
 ```
 
-修改后重启 nginx。
+> 注意：nginx 正则 location 中的 `{`/`}` 需用双引号包裹整个正则，否则配置解析器会误判为块开始（`unknown directive`）。
 
 ## 验证
 
 浏览器访问：
 
 ```text
-http://服务器IP/DSH/
+http://服务器IP:8088/DSH/
 ```
 
 检查内容：
@@ -148,7 +160,7 @@ http://服务器IP/DSH/
 - 页面标题是金十DSH
 - 没有静态资源 404
 - 股票代码链接使用 `http://www.treeid/code_XXXXXX`
-- 后续 API 路径可访问 `/DSH/api/health`
+- API 路径可访问 `/DSH/api/health`、`/DSH/api/agent/summary`（Agent 聚合摘要）
 
 ## V0.2 统一数据服务（market-data-service）
 
