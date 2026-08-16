@@ -17,7 +17,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 
-from .normalize import stock_id
+from .normalize import sector_type, stock_id
 
 # 常量（DATA_MODEL §9）
 KPL_UA = "Dalvik/2.1.0 (Linux; U; Android 12; ALN-AL00 Build/W528JS)"
@@ -237,15 +237,53 @@ def verify(records):
     return ok, report
 
 
+def build_sectors_from_daily(daily):
+    """kpl_<date>.json（sectors + sub）→ `normalized/sectors.json` 板块/子板块字典（DATA_MODEL §3.3）。
+
+    - `sectors` 列表 → level 1（parent_id=None）
+    - `sub` 映射 → level 2（parent_id=父板块）
+    - `type`（concept/industry）按板块 ID 前缀（normalize.sector_type）
+    """
+    secs = {}
+    for s in daily.get("sectors", []):
+        sid = str(s["id"])
+        secs[sid] = {"sector_id": sid, "name": s["name"], "parent_id": None, "level": 1,
+                     "type": sector_type(sid), "source": "kpl"}
+    for pid, subs in (daily.get("sub") or {}).items():
+        for s in subs:
+            sid = str(s["id"])
+            secs.setdefault(sid, {"sector_id": sid, "name": s["name"], "parent_id": str(pid), "level": 2,
+                                  "type": sector_type(sid), "source": "kpl"})
+    return secs
+
+
+def write_sectors_json(secs, out_dir):
+    path = os.path.join(out_dir, "sectors.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump(secs, fh, ensure_ascii=False, indent=2)
+    return path
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="主数据采集（master_collector）")
     ap.add_argument("--from-kpl", help="离线：读取现网 kpl_<date>_stocks.json（无需凭据）")
+    ap.add_argument("--kpl-daily", help="离线：读取 kpl_<date>.json → 生成 normalized/sectors.json 板块字典")
     ap.add_argument("--full", action="store_true", help="网络：全量采集（需 KPL_TOKEN/KPL_USER_ID）")
     ap.add_argument("--incr", action="store_true", help="网络：增量采集（按 manifest 对比）")
     ap.add_argument("--out", default="data/normalized", help="输出目录（默认 data/normalized）")
     ap.add_argument("--date", default=datetime.now().strftime("%Y-%m-%d"), help="数据日期")
     ap.add_argument("--verify", action="store_true", help="采集后校验并输出统计")
     args = ap.parse_args(argv)
+
+    if args.kpl_daily:
+        with open(args.kpl_daily, encoding="utf-8") as fh:
+            daily = json.load(fh)
+        secs = build_sectors_from_daily(daily)
+        path = write_sectors_json(secs, args.out)
+        lvl1 = sum(1 for v in secs.values() if v["level"] == 1)
+        lvl2 = sum(1 for v in secs.values() if v["level"] == 2)
+        print(f"[OK] 板块字典 {len(secs)} 个（level1={lvl1} level2={lvl2}）→ {path}")
+        return 0
 
     if args.from_kpl:
         rows, fetched_at = read_kpl_stocks_file(args.from_kpl)

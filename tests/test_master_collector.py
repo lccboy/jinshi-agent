@@ -1,5 +1,6 @@
 # V0.1a 任务 3：master_collector 测试（离线模式，纯函数 TDD）
 from services.collector.master_collector import (
+    build_sectors_from_daily,
     build_stock_record,
     derive_market_board,
     diff_universe,
@@ -7,6 +8,19 @@ from services.collector.master_collector import (
     merge_universe,
     read_kpl_stocks_file,
 )
+
+
+def test_build_sectors_from_daily():
+    # kpl_<date>.json（sectors + sub）→ 板块/子板块字典（DATA_MODEL §3.3）
+    daily = {"sectors": [{"id": "801001", "name": "芯片"}, {"id": "880123", "name": "行业X"}],
+             "sub": {"801001": [{"id": "801722", "name": "存储"}]}}
+    secs = build_sectors_from_daily(daily)
+    assert secs["801001"]["level"] == 1 and secs["801001"]["parent_id"] is None
+    assert secs["801001"]["type"] == "concept"
+    assert secs["880123"]["type"] == "industry"
+    assert secs["801722"]["level"] == 2 and secs["801722"]["parent_id"] == "801001"
+    assert secs["801722"]["type"] == "concept"
+    assert all(v["source"] == "kpl" for v in secs.values())
 
 
 def test_read_kpl_stocks_file_flattens_dict(tmp_path):
