@@ -19,6 +19,22 @@
   --c-code-fg:#e24b4a;--c-link:#e24b4a;--c-gold:#e6a817;
   --shadow-row:0 0 6px rgba(226,75,74,0.15);
   --gradient-pill:linear-gradient(135deg,#e24b4a,#c0392b);
+  --c-warn-bg:#fff7e6;--c-warn-border:#ffd591;--c-warn-text:#8a5a00;
+}
+[data-theme="dark"]{
+  --c-bg:#12161C;--c-surface:#1A1F2B;--c-surface-alt:#222836;
+  --c-border:#2A3040;--c-border-light:#1E2430;
+  --c-text:#E8EAED;--c-text-secondary:#9AA0B0;--c-text-muted:#5C6370;--c-text-inverse:#12161C;
+  --c-primary:#E05555;--c-primary-dark:#CC4444;--c-primary-light:#221618;--c-primary-border:#4D2A28;
+  --c-accent:#E8A043;--c-success:#3DBE70;--c-danger:#E05555;
+  --c-tag-bg:#222836;--c-hover:#222836;--c-active-bg:#221618;
+  --c-l2-bg:#181D26;--c-l2-hover:#1E2430;
+  --c-input-bg:#161B24;--c-input-border:#2A3040;
+  --c-sidebar-bg:#1A1F2B;--c-mainbar-bg:linear-gradient(135deg,#1A1F2E,#251A26);--c-mainbar-text:#E8EAED;
+  --c-code-fg:#E05555;--c-link:#E05555;--c-gold:#F0B860;
+  --shadow-row:0 0 12px rgba(224,85,85,0.20);
+  --gradient-pill:linear-gradient(135deg,#E05555,#CC4444);
+  --c-warn-bg:#26221a;--c-warn-border:#4d3d28;--c-warn-text:#E8A043;
 }
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;font-size:13px;color:var(--c-text);background:var(--c-bg)}
@@ -30,9 +46,11 @@ a:hover{text-decoration:underline}
 
 /* ===== 左栏 280px ===== */
 .sidebar{width:280px;flex-shrink:0;background:var(--c-sidebar-bg);border-right:1px solid var(--c-border);display:flex;flex-direction:column}
-.sidebar-top{background:var(--gradient-pill);color:var(--c-mainbar-text);padding:13px 16px}
-.sidebar-top h2{font-size:15px;font-weight:600;letter-spacing:.3px}
-.sidebar-top .meta{font-size:11.5px;opacity:.85;margin-top:3px}
+.sidebar-top{background:var(--gradient-pill);color:var(--c-mainbar-text);padding:13px 16px;display:flex;align-items:center;justify-content:space-between}
+.sidebar-top .left h2{font-size:15px;font-weight:600;letter-spacing:.3px}
+.sidebar-top .left .meta{font-size:11.5px;opacity:.85;margin-top:3px}
+.theme-toggle{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.3);color:#fff;font-size:14px;width:30px;height:30px;border-radius:8px;cursor:pointer;flex-shrink:0}
+.theme-toggle:hover{background:rgba(255,255,255,.28)}
 .search-wrap{padding:8px 12px;border-bottom:1px solid var(--c-border)}
 .search-wrap input{width:100%;padding:6px 10px;border:1px solid var(--c-input-border);border-radius:6px;background:var(--c-input-bg);font-size:12.5px;color:var(--c-text);outline:none}
 .search-wrap input:focus{border-color:var(--c-primary)}
@@ -54,7 +72,7 @@ a:hover{text-decoration:underline}
 .badge{font-size:10px;padding:1px 6px;border-radius:8px;white-space:nowrap}
 .b-zt{background:var(--c-primary-light);color:var(--c-primary);font-weight:600}
 .b-score{background:var(--c-tag-bg);color:var(--c-text-secondary)}
-.b-hot{background:#fff7e6;color:var(--c-gold);font-weight:600}
+.b-hot{background:var(--c-warn-bg);color:var(--c-warn-text);font-weight:600}
 .b-cnt{background:var(--c-tag-bg);color:var(--c-text-muted)}
 .ti .chg{font-size:11px;font-weight:600}
 .chg.up{color:var(--c-primary)}.chg.dn{color:var(--c-success)}
@@ -124,7 +142,7 @@ table.plain tbody tr:hover td{background:var(--c-hover)}
 .l-row .v.up{color:var(--c-primary)}.l-row .v.dn{color:var(--c-success)}
 .r-tag{display:inline-block;font-size:11px;padding:2px 8px;border-radius:6px;cursor:pointer;margin:2px 3px 2px 0;border:1px solid var(--c-border)}
 .r-tag.sec{background:var(--c-primary-light);border-color:var(--c-primary-border);color:var(--c-primary)}
-.r-tag.thm{background:#fff7e6;border-color:#ffd591;color:var(--c-gold)}
+.r-tag.thm{background:var(--c-warn-bg);border-color:var(--c-warn-border);color:var(--c-warn-text)}
 .r-tag:hover{filter:brightness(.96)}
 .reason{font-size:12px;color:var(--c-text-secondary);line-height:1.7;word-break:break-all}
 </style>
@@ -133,7 +151,10 @@ table.plain tbody tr:hover td{background:var(--c-hover)}
 <div class="container">
   <!-- 左栏 -->
   <div class="sidebar">
-    <div class="sidebar-top"><h2>📈 金十DSH · 题材工作台</h2><div class="meta" id="sideMeta">- 收盘数据</div></div>
+    <div class="sidebar-top">
+      <div class="left"><h2>📈 金十DSH · 题材工作台</h2><div class="meta" id="sideMeta">- 收盘数据</div></div>
+      <button class="theme-toggle" id="themeToggle" title="切换深色/浅色">🌙</button>
+    </div>
     <div class="search-wrap"><input id="idxSearch" placeholder="🔍 搜索题材 / 板块…"></div>
     <div class="idx-bar">
       <div class="idx-btn on" data-idx="theme">📚 题材</div>
@@ -343,6 +364,14 @@ document.querySelectorAll('.idx-btn').forEach(function(b){ b.addEventListener('c
   document.querySelectorAll('.idx-btn').forEach(function(x){x.classList.remove('on');}); b.classList.add('on');
   idxMode=b.dataset.idx; sortKey = idxMode==='theme'?'zt':'st'; selected=null; renderSortBar(); renderIndex(); renderAll();
 }); });
+
+/* ===== 主题切换 ===== */
+function applyTheme(t){ document.documentElement.dataset.theme = t; $('#themeToggle').textContent = t==='dark'?'☀️':'🌙'; }
+function toggleTheme(){ var t = document.documentElement.dataset.theme==='dark'?'light':'dark'; applyTheme(t); try{ localStorage.setItem('dsh_theme', t); }catch(e){} }
+try{ var saved = localStorage.getItem('dsh_theme'); if(saved) applyTheme(saved); }catch(e){}
+var qTheme = (location.search.match(/theme=(\w+)/)||[])[1];
+if(qTheme) applyTheme(qTheme === 'dark' ? 'dark' : 'light');
+$('#themeToggle').addEventListener('click', toggleTheme);
 
 loadAll().then(function(){
   renderSortBar();
