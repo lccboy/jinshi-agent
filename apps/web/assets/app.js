@@ -217,11 +217,16 @@
   }
 
   /* ---------- 事件绑定 ---------- */
+  var VALID_VIEWS = ['signal', 'theme', 'sector', 'strategy', 'history'];
+  var initView = location.hash ? location.hash.slice(1) : 'signal';
+  if (VALID_VIEWS.indexOf(initView) >= 0) currentView = initView;
   document.querySelectorAll('.tab').forEach(function (tab) {
+    if (tab.dataset.view === currentView) tab.classList.add('active');
     tab.addEventListener('click', function () {
       document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
       tab.classList.add('active');
       currentView = tab.dataset.view;
+      if (history.replaceState) history.replaceState(null, '', '#' + currentView);
       render();
     });
   });
