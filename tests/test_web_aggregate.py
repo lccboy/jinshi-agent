@@ -4,6 +4,7 @@ import json
 
 from services.collector.archive_job import (
     build_day_view,
+    build_detail_view,
     compute_confirm,
     trim_quotes,
     write_day_view,
@@ -97,3 +98,27 @@ def test_write_day_view_files(tmp_path):
     with open(tmp_path / "index.json", encoding="utf-8") as fh:
         idx = json.load(fh)
     assert "2026-08-14" in [d["date"] for d in idx["days"]]
+
+
+def test_build_detail_view_keeps_sources():
+    # V0.1b 任务 1：懒加载 detail 文件保留涨停原因原文与 4 源
+    facts = {"limitup": {"SZ300487": {"reason": "存储", "detail": "长文…", "primary": "kpl",
+                                      "sourceCount": 4, "sources": {"kpl": {"reason": "存储"},
+                                                                     "xgb": {"reason": "存储概念"}}}}}
+    detail = build_detail_view("2026-08-14", facts)
+    assert detail["date"] == "2026-08-14"
+    entry = detail["limitup"]["SZ300487"]
+    assert entry["detail"] == "长文…"
+    assert entry["sources"]["kpl"]["reason"] == "存储"
+    assert entry["sourceCount"] == 4
+
+
+def test_write_detail_view_files(tmp_path):
+    detail = {"date": "2026-08-14", "limitup": {"SZ300487": {"detail": "x" * 500}}}
+    from services.collector.archive_job import write_detail_view
+
+    paths = write_detail_view("2026-08-14", detail, str(tmp_path))
+    assert (tmp_path / "day_2026-08-14.detail.json").exists()
+    assert (tmp_path / "day_2026-08-14.detail.json.gz").exists()
+    gz = gzip.open(tmp_path / "day_2026-08-14.detail.json.gz", "rt", encoding="utf-8")
+    assert json.load(gz)["date"] == "2026-08-14"

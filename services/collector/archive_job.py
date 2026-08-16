@@ -99,6 +99,27 @@ def build_day_view(date_str, facts):
     return view
 
 
+def build_detail_view(date_str, facts):
+    """`day_<date>.detail.json`（懒加载）：涨停原因原文 + 4 源（页面弹窗按需拉取，DATA_MODEL §13.2）。"""
+    limitup = facts.get("limitup") or {}
+    return {"date": date_str, "limitup": {
+        sid: {"reason": e.get("reason", ""), "detail": e.get("detail", ""), "primary": e.get("primary", ""),
+              "sourceCount": e.get("sourceCount", 0), "sources": e.get("sources", {})}
+        for sid, e in limitup.items()
+    }}
+
+
+def write_detail_view(date_str, detail, out_dir):
+    """写 `day_<date>.detail.json` + `.gz`（懒加载）。"""
+    raw = json.dumps(detail, ensure_ascii=False).encode("utf-8")
+    path = os.path.join(out_dir, f"day_{date_str}.detail.json")
+    with open(path, "wb") as fh:
+        fh.write(raw)
+    with open(path + ".gz", "wb") as fh:
+        fh.write(gzip.compress(raw, compresslevel=6))
+    return [path, path + ".gz"]
+
+
 # ---------------- 写盘 ----------------
 
 def write_day_view(date_str, view, out_dir):
@@ -162,10 +183,11 @@ def read_facts(date_str, facts_dir):
 
 
 def archive_day(date_str, facts_dir, web_dir, intraday_dir, archive_dir):
-    """归档编排：facts → 视图层 → intraday 移入 archive。返回 (view, paths)。"""
+    """归档编排：facts → 视图层（day + detail + 索引）→ intraday 移入 archive。返回 (view, paths)。"""
     facts = read_facts(date_str, facts_dir)
     view = build_day_view(date_str, facts)
     paths = write_day_view(date_str, view, web_dir)
+    paths += write_detail_view(date_str, build_detail_view(date_str, facts), web_dir)
 
     src = os.path.join(intraday_dir, date_str)
     if os.path.isdir(src):
