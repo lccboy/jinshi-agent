@@ -149,3 +149,33 @@ http://服务器IP/DSH/
 - 没有静态资源 404
 - 股票代码链接使用 `http://www.treeid/code_XXXXXX`
 - 后续 API 路径可访问 `/DSH/api/health`
+
+## V0.2 统一数据服务（market-data-service）
+
+服务是**服务器本地进程**（仅监听 127.0.0.1，nginx 反代对外），纯 stdlib 零依赖。
+
+### 本地启动（开发/验证）
+
+```powershell
+python services\market_data_service.py --port 8787 --data data
+# 验证
+curl http://127.0.0.1:8787/api/health
+curl "http://127.0.0.1:8787/api/history?stock=SZ300487"
+```
+
+### 服务器部署（NSSM 注册开机自启）
+
+```powershell
+# 先装 NSSM（https://nssm.cc），再：
+nssm install DSH-API "C:\Users\Administrator\AppData\Local\Programs\Python\Python310\python.exe" "H:\金十Agent\services\market_data_service.py --port 8787 --data H:\金十Agent\data"
+nssm set DSH-API AppDirectory "H:\金十Agent"
+nssm set DSH-API AppStdout "H:\金十Agent\logs\api.log"
+nssm set DSH-API AppStderr "H:\金十Agent\logs\api.err"
+nssm start DSH-API
+```
+
+nginx 反代（已在上文 `location /DSH/api/`）后，对外访问 `/DSH/api/health` 验证。
+
+### 数据送达服务器
+
+采集在本地完成（TDX/KPL 数据源在本地），把 `data/web`、`data/facts`、`data/kline`、`data/normalized` 同步到服务器对应目录（可用 `deploy.py` 扩展或 robocopy）。前端静态优先（nginx 直出视图层），API 补动态（历史时间线/实时快照/Agent 入口）。
