@@ -81,6 +81,22 @@ def test_build_day_view_skips_missing_sections():
     assert view["date"] == "2026-08-14"
     assert view["sectors"] == [] and view["limitup"] == []
     assert view["market"] == {}
+    assert view["events"] == []
+
+
+def test_build_day_view_events_sorted_desc():
+    # 事件流裁剪字段 + 按时间倒序（最新在前，上限 200）
+    facts = {"events": [
+        {"ts": "2026-08-14T09:35:03", "type": "limitup", "stock_id": "SZ300487",
+         "score": 92, "detail": "涨停", "source": "tencent", "price": 12.0},
+        {"ts": "2026-08-14T10:47:00", "type": "broken", "stock_id": "SZ002636",
+         "score": 0, "detail": "炸板"},
+    ]}
+    view = build_day_view("2026-08-14", facts)
+    assert view["events"][0]["ts"].startswith("2026-08-14T10:47")
+    assert view["events"][0]["type"] == "broken"
+    assert set(view["events"][0]) == {"ts", "type", "stock_id", "score", "detail"}  # 字段裁剪
+    assert "price" not in view["events"][0]
 
 
 def test_day_view_gzip_roundtrip():

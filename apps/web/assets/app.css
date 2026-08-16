@@ -58,6 +58,13 @@ a.stk:hover{text-decoration:underline}
 .lead-item:last-child{border-bottom:0}
 .lead-name{font-weight:600;color:#e6edf3}
 .lead-reason{color:#8b949e;margin-top:3px;line-height:1.6}
+/* ===== 盘中事件流 ===== */
+.evt-item{display:flex;align-items:center;gap:8px;padding:6px 10px;border-bottom:1px solid #21262d;font-size:12px}
+.evt-item:last-child{border-bottom:0}
+.evt-item .b-up{background:#3d1d1d;border:1px solid #8b2f2f;color:#ffa198}
+.evt-item .b-dn{background:#12261a;border:1px solid #1f6f43;color:#3fb950}
+.evt-time{color:#5c6370;font-size:11px;font-variant-numeric:tabular-nums}
+.evt-detail{color:#8b949e;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* ===== 题材库 ===== */
 .lib-search{width:100%;padding:8px 10px;border:1px solid #30363d;border-radius:6px;background:#0d1117;color:#c9d1d9;margin-bottom:12px;font-size:13px;outline:none}
 .lib-search:focus{border-color:#58a6ff}

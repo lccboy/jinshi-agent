@@ -124,7 +124,10 @@
       esc(txt) + '<span class="badge b-src">' + n + '源</span></button>';
   }
 
-  /* 实时信号：涨停池 + 资金流 + 领涨原因 */
+  /* 实时信号：涨停池 + 资金流 + 领涨原因 + 盘中事件流 */
+  var EVT_META = { limitup: '🚀 涨停', broken: '💥 炸板', signal_hit: '🎯 模型命中',
+                   ladder_up: '🪜 晋级', leader_change: '👑 龙头易主', sector_boom: '🔥 板块爆发',
+                   volume_surge: '⚡ 量比异动', index_resonance: '📈 指数共振' };
   function vSignal(view) {
     var lu = view.limitup || [];
     var rows = lu.map(function (e, i) {
@@ -148,7 +151,19 @@
     }).join('');
     var lrCard = card('🔥 领涨原因', '选股宝板块', lr || '<div class="muted" style="padding:12px">暂无</div>');
 
+    /* 盘中事件流（realtime_engine 输出，最新在前） */
+    var evs = (view.events || []).slice(0, 30).map(function (e) {
+      var label = EVT_META[e.type] || e.type;
+      var t = String(e.ts || '').split('T')[1] || '';
+      return '<div class="evt-item"><span class="badge ' + (e.type === 'broken' ? 'b-dn' : 'b-up') + '">' + esc(label) + '</span>' +
+        '<span class="evt-time">' + esc(t) + '</span>' +
+        (e.stock_id ? stk(e.stock_id, code6(e.stock_id)) + ' ' : '') +
+        '<span class="evt-detail">' + esc(e.detail || '') + '</span></div>';
+    }).join('');
+    var evtCard = card('📡 盘中事件流', '涨停/炸板/模型命中/量比异动', evs || '<div class="muted" style="padding:12px">暂无事件</div>');
+
     return card('🚀 涨停池', currentDay + ' · ' + (view.market.limit_up != null ? view.market.limit_up + ' 只涨停' : '实时检测'), luTable, true) +
+      evtCard +
       '<div class="grid2">' + mfCard + lrCard + '</div>';
   }
 

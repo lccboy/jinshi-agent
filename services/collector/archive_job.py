@@ -68,6 +68,13 @@ def build_day_view(date_str, facts):
 
     view["ladder"] = facts.get("ladder") or {}
 
+    # 盘中事件流（DATA_MODEL §4.12）：裁剪类型/字段，按时间倒序，供"实时信号"视图
+    events = facts.get("events") or []
+    view["events"] = [
+        {k: e[k] for k in ("ts", "type", "stock_id", "score", "detail", "source") if k in e}
+        for e in sorted(events, key=lambda ev: ev.get("ts", ""), reverse=True)[:200]
+    ]
+
     money_flow = facts.get("money_flow") or {}
     view["money_flow"] = [
         {k: f[k] for k in ("name", "main", "main_pct", "rank_in") if k in f}
@@ -187,7 +194,7 @@ def write_day_view(date_str, view, out_dir):
 # ---------------- 归档编排 ----------------
 
 FACT_FILES = ("market", "indexes", "sectors", "limitup", "ladder", "membership", "strategy",
-              "money_flow", "leading_reason", "pool")
+              "money_flow", "leading_reason", "pool", "events")
 
 
 def read_facts(date_str, facts_dir):
@@ -209,6 +216,8 @@ def read_facts(date_str, facts_dir):
             facts[name] = doc.get("plates", doc)
         elif name == "indexes":
             facts[name] = doc.get("indexes", doc)
+        elif name == "events":
+            facts[name] = doc.get("events", [])   # 事件流为列表
         else:
             facts[name] = doc
     return facts
