@@ -1,0 +1,209 @@
+# -*- coding: utf-8 -*-
+"""归档 + Web 视图层（V0.1a 任务 6）
+
+依据 `docs/DATA_MODEL.md` §13：
+- 15:20 归档编排：读当日 facts → 生成 Web 视图层（字段裁剪 + 预排序 + 四维确认 + gzip 预压缩）→ intraday 移入 archive
+- `data/web/day_<date>.json`（页面唯一数据源）+ `.gz`（nginx gzip_static 直出）+ `day_latest.json` + `index.json`（日期清单）
+"""
+import argparse
+import gzip
+import json
+import os
+import re
+import shutil
+
+# quotes 63 字段 → 页面展示列（DATA_MODEL §13.2）
+QUOTES_KEEP = ("price", "change", "turnover", "volume", "volRatio", "mainNet",
+               "circMarketCap", "totalMarketCap")
+MIN_SECTOR_STRENGTH = 4000
+MONEY_TOP_N = 30
+STRATEGY_TOP_N = 20
+
+
+# ---------------- 纯函数（TDD 覆盖） ----------------
+
+def trim_quotes(full):
+    """quotes 63 字段 → 页面 ~8 展示字段（剔除长文/人气/封单等）。"""
+    return {k: full[k] for k in QUOTES_KEEP if k in full}
+
+
+def _board_height(boards):
+    """'4连板'/'3天2板'/'首板' → 数字高度（首板=1），用于排序。"""
+    m = re.search(r"(\d+)", str(boards or ""))
+    return int(m.group(1)) if m else 1
+
+
+def compute_confirm(stock_sectors, sectors_fact, money_flow, leading_reason, min_strength=MIN_SECTOR_STRENGTH):
+    """叠加确认层（STRATEGY_MODEL §8）：板块强度/资金流入/领涨原因 三维布尔。"""
+    strength = max((sectors_fact[s].get("strength", 0) for s in stock_sectors if s in sectors_fact), default=0)
+    has_money = any(money_flow[s].get("main", 0) > 0 for s in stock_sectors if s in money_flow)
+    has_reason = any(str(leading_reason[s].get("reason", "") or "").strip() for s in stock_sectors if s in leading_reason)
+    return {
+        "sector_strength": bool(strength) and strength >= min_strength,
+        "money_flow": has_money,
+        "leading_reason": has_reason,
+    }
+
+
+def build_day_view(date_str, facts):
+    """当日 facts → Web 视图（预排序 + 裁剪 + 四维确认）。
+
+    facts 键：market/indexes/sectors/limitup/ladder/membership/strategy/money_flow/leading_reason/pool
+    （均为解包后的直接 dict，缺省跳过）。
+    """
+    view = {"date": date_str, "market": dict(facts.get("market") or {}), "indexes": facts.get("indexes") or {}}
+
+    sectors_fact = facts.get("sectors") or {}
+    view["sectors"] = [
+        {"id": sid, **{k: sec.get(k) for k in ("name", "strength", "change", "mainNet", "limit_up_count", "boom_reason") if k in sec}}
+        for sid, sec in sorted(sectors_fact.items(), key=lambda kv: kv[1].get("strength", 0), reverse=True)
+    ]
+
+    limitup = facts.get("limitup") or {}
+    view["limitup"] = [
+        {"stock_id": sid, **{k: e[k] for k in ("reason", "boards", "concepts", "primary", "sourceCount",
+                                               "first_time", "seal_amount") if k in e}}
+        for sid, e in sorted(limitup.items(), key=lambda kv: _board_height(kv[1].get("boards")), reverse=True)
+    ]
+
+    view["ladder"] = facts.get("ladder") or {}
+
+    money_flow = facts.get("money_flow") or {}
+    view["money_flow"] = [
+        {k: f[k] for k in ("name", "main", "main_pct", "rank_in") if k in f}
+        for f in sorted(money_flow.values(), key=lambda f: f.get("main", 0), reverse=True)[:MONEY_TOP_N]
+    ]
+
+    leading = facts.get("leading_reason") or {}
+    view["leading_reason"] = sorted(leading.values(), key=lambda r: r.get("limit_up_count", 0), reverse=True)
+
+    strategy = facts.get("strategy") or {}
+    view["strategy_top"] = [
+        {"stock_id": sid, **{k: e[k] for k in ("score", "models", "buy_point", "target") if k in e}}
+        for sid, e in sorted(strategy.items(), key=lambda kv: kv[1].get("score", 0), reverse=True)[:STRATEGY_TOP_N]
+    ]
+
+    # 预警池 + 四维确认（需 membership 把股票 → 板块）
+    membership = facts.get("membership") or {}
+    pool = facts.get("pool") or {}
+    pools = json.loads(json.dumps(pool))  # 深拷贝，避免改原 facts
+    alert = pools.get("pools", {}).get("alert") or {}
+    if alert:
+        for sid, entry in alert.items():
+            secs = [m["id"] for m in membership.get(sid, []) if m.get("type") == "sector"]
+            confirm = compute_confirm(secs, sectors_fact, money_flow, leading)
+            entry["confirm"] = confirm
+            entry["stars"] = 4 if all(confirm.values()) else (3 if sum(confirm.values()) >= 2 else 2)
+    view["pools"] = pools
+
+    return view
+
+
+# ---------------- 写盘 ----------------
+
+def write_day_view(date_str, view, out_dir):
+    """写 day_<date>.json + .gz + day_latest.json，更新 index.json 日期清单。"""
+    os.makedirs(out_dir, exist_ok=True)
+    raw = json.dumps(view, ensure_ascii=False).encode("utf-8")
+
+    day_path = os.path.join(out_dir, f"day_{date_str}.json")
+    with open(day_path, "wb") as fh:
+        fh.write(raw)
+    gz_path = day_path + ".gz"
+    with open(gz_path, "wb") as fh:
+        fh.write(gzip.compress(raw, compresslevel=6))
+
+    with open(os.path.join(out_dir, "day_latest.json"), "wb") as fh:
+        fh.write(raw)
+
+    index_path = os.path.join(out_dir, "index.json")
+    idx = {"days": []}
+    if os.path.exists(index_path):
+        with open(index_path, encoding="utf-8") as fh:
+            idx = json.load(fh)
+    dates = {d["date"] for d in idx["days"]}
+    if date_str not in dates:
+        idx["days"].append({"date": date_str})
+    idx["days"].sort(key=lambda d: d["date"], reverse=True)
+    with open(index_path, "w", encoding="utf-8") as fh:
+        json.dump(idx, fh, ensure_ascii=False, indent=2)
+
+    return [day_path, gz_path, os.path.join(out_dir, "day_latest.json"), index_path]
+
+
+# ---------------- 归档编排 ----------------
+
+FACT_FILES = ("market", "indexes", "sectors", "limitup", "ladder", "membership", "strategy",
+              "money_flow", "leading_reason", "pool")
+
+
+def read_facts(date_str, facts_dir):
+    """读 data/facts/<date>/*.json → 解包为 build_day_view 的直接 dict。
+
+    facts 文件形态：纯 dict（market/indexes/ladder/pool）或 {data_date, sectors/plates/...} 包装。
+    """
+    day_dir = os.path.join(facts_dir, date_str)
+    facts = {}
+    for name in FACT_FILES:
+        path = os.path.join(day_dir, f"{name}.json")
+        if not os.path.exists(path):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+        if name in ("sectors", "money_flow"):
+            facts[name] = doc.get("sectors", doc)
+        elif name == "leading_reason":
+            facts[name] = doc.get("plates", doc)
+        elif name == "indexes":
+            facts[name] = doc.get("indexes", doc)
+        else:
+            facts[name] = doc
+    return facts
+
+
+def archive_day(date_str, facts_dir, web_dir, intraday_dir, archive_dir):
+    """归档编排：facts → 视图层 → intraday 移入 archive。返回 (view, paths)。"""
+    facts = read_facts(date_str, facts_dir)
+    view = build_day_view(date_str, facts)
+    paths = write_day_view(date_str, view, web_dir)
+
+    src = os.path.join(intraday_dir, date_str)
+    if os.path.isdir(src):
+        os.makedirs(archive_dir, exist_ok=True)
+        dst = os.path.join(archive_dir, date_str)
+        shutil.move(src, dst)
+
+    return view, paths
+
+
+def verify_view(view, day_path, gz_path):
+    raw_size = os.path.getsize(day_path)
+    gz_size = os.path.getsize(gz_path)
+    ok = raw_size <= 200 * 1024 and gz_size <= 80 * 1024
+    report = {"date": view["date"], "raw_kb": round(raw_size / 1024, 1), "gz_kb": round(gz_size / 1024, 1),
+              "sectors": len(view["sectors"]), "limitup": len(view["limitup"]), "ok": ok}
+    return ok, report
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="归档 + Web 视图层（archive_job）")
+    ap.add_argument("--date", required=True, help="数据日期 YYYY-MM-DD")
+    ap.add_argument("--facts", default="data/facts", help="facts 根目录（默认 data/facts）")
+    ap.add_argument("--web", default="data/web", help="Web 视图层输出（默认 data/web）")
+    ap.add_argument("--intraday", default="data/intraday", help="盘中快照目录（默认 data/intraday）")
+    ap.add_argument("--archive", default="data/archive", help="归档目录（默认 data/archive）")
+    ap.add_argument("--verify", action="store_true", help="输出体积校验（≤200KB raw / ≤80KB gz）")
+    args = ap.parse_args(argv)
+
+    view, paths = archive_day(args.date, args.facts, args.web, args.intraday, args.archive)
+    print(f"[OK] {args.date} 视图层已生成: day_{args.date}.json + .gz")
+    if args.verify:
+        ok, report = verify_view(view, paths[0], paths[1])
+        print(f"[VERIFY] {'PASS' if ok else 'FAIL'} raw={report['raw_kb']}KB gz={report['gz_kb']}KB "
+              f"板块={report['sectors']} 涨停={report['limitup']}")
+        return 0 if ok else 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
