@@ -790,25 +790,40 @@
     });
   }
   function vStrategy(view) {
-    Promise.all([loadExpandLibs(), loadStrategyAll()]).then(function () { render(); });
     loadStrategyConfig();
     var rows = strategyRows(view).slice(0, 300);
-    var names = LIBS.stocks_slim || {};
-    var reasons = limitupEntryMap(view);
     var kpi = [
       ['命中总数', rows.length],
       ['预警池', ((view.pools || {}).pools || {}).alert ? Object.keys(((view.pools || {}).pools || {}).alert).length : 0],
       ['最高评分', rows[0] ? Number(rows[0].score).toFixed(1) : '-'],
       ['模型覆盖', Object.keys(rows.reduce(function (a, r) { Object.keys(r.models || {}).forEach(function (m) { a[m] = 1; }); return a; }, {})).length + '/17']];
-    var kpiHtml = '<div class="kpi-row">' + kpi.map(function (k) {
+    var kpiHtml = '<div class="kpi-row" id="stratKpi">' + kpi.map(function (k) {
       return '<div class="kpi"><div class="num">' + k[1] + '</div><div class="lbl">' + k[0] + '</div></div>';
     }).join('') + '</div>';
     var seg = '<div class="seg" id="stratSeg">' +
       '<button type="button" class="seg-btn' + (stratMode === 'all' ? ' active' : '') + '" data-mode="all">全部</button>' +
       '<button type="button" class="seg-btn' + (stratMode === 'time' ? ' active' : '') + '" data-mode="time">按时间归类</button>' +
       '<button type="button" class="seg-btn' + (stratMode === 'model' ? ' active' : '') + '" data-mode="model">按模型分类</button></div>';
+    // 异步补全：局部更新 KPI 与命中池（绝不全量 render()，避免 vStrategy 递归重渲染卡死）
+    Promise.all([loadExpandLibs(), loadStrategyAll()]).then(function () {
+      var view2 = CACHE[currentDay] || {};
+      var rows2 = strategyRows(view2).slice(0, 300);
+      var kpiEl = $('stratKpi');
+      if (kpiEl) {
+        var k2 = [
+          ['命中总数', rows2.length],
+          ['预警池', ((view2.pools || {}).pools || {}).alert ? Object.keys(((view2.pools || {}).pools || {}).alert).length : 0],
+          ['最高评分', rows2[0] ? Number(rows2[0].score).toFixed(1) : '-'],
+          ['模型覆盖', Object.keys(rows2.reduce(function (a, r) { Object.keys(r.models || {}).forEach(function (m) { a[m] = 1; }); return a; }, {})).length + '/17']];
+        kpiEl.innerHTML = k2.map(function (k) {
+          return '<div class="kpi"><div class="num">' + k[1] + '</div><div class="lbl">' + k[0] + '</div></div>';
+        }).join('');
+      }
+      var bodyEl = $('stratBody');
+      if (bodyEl) bodyEl.innerHTML = renderStratBody(rows2, LIBS.stocks_slim || {}, limitupEntryMap(view2));
+    });
     return strategyConfigCard() +
-      card('🎯 策略模型 · 命中池', '评分降序 · TOP 300', kpiHtml + seg + '<div id="stratBody">' + renderStratBody(rows, names, reasons) + '</div>', false);
+      card('🎯 策略模型 · 命中池', '评分降序 · TOP 300', kpiHtml + seg + '<div id="stratBody"><div class="muted" style="padding:12px">加载命中池…</div></div>', false);
   }
 
   /* 历史选股：预警池 + 候选池（星级/确认/模型命中） */
