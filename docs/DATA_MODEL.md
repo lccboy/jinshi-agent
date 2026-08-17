@@ -450,7 +450,7 @@ data/
 
 | type | 触发条件 | 数据来源 |
 |---|---|---|
-| `limitup` | 涨停检测确认（腾讯/KPL 双源） | quote + limitup |
+| `limitup` | 腾讯全市场行情经 `limit_detect` 确认（腾讯涨停价优先，板块/ST 规则兜底；KPL 收盘校验） | quote + limitup |
 | `ladder_up` | 连板晋级（1→2…） | ladder 实时 |
 | `signal_hit` | 交集评分 ≥ 阈值 | 信号引擎 |
 | `broken` | 涨停后跌破涨停价（炸板） | quote 连续快照 |
@@ -486,6 +486,7 @@ data/
 ```
 
 - 五池语义：`limitup` 实时涨停、`ladder` 连板梯队、`alert` **交集信号预警（核心）**、`candidate` 收盘评分排序、`watchlist` 人工自选
+- `limitup` 盘中链路固定为 `腾讯行情 API → limit_detect → pool/events`，覆盖全市场；昨日 `strategy.json` 冻结集合只限制模型命中计算，不限制涨停检测范围
 - `model_hit`：命中的自研模型（②横盘突破…），**预警展示置顶**（`priority: high`）——"重点突出我的模型策略选出来的票"；`score_breakdown` 保留评分分解 → 可解释、可回测（见 §11.3、`docs/STRATEGY_MODEL.md`）
 - `confirm`：叠加确认层结果（`sector_strength`/`money_flow`/`leading_reason` 三布尔）——4 星共振（模型∧强度∧资金∧原因）置顶，见 `docs/STRATEGY_MODEL.md` §8
 - `removed` 记录退出（炸板/破位/人工移除），历史状态可完整还原

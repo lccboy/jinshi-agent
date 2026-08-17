@@ -46,7 +46,8 @@ def make_client(tmp_data, tmp_path):
     intraday = os.path.join(tmp_data, "intraday", "2026-08-14")
     os.makedirs(intraday, exist_ok=True)
     with open(os.path.join(intraday, "snapshots.ndjson"), "w", encoding="utf-8") as fh:
-        fh.write(json.dumps({"ts": "2026-08-14 10:02:03", "phase": "continuous", "stocks": {}}) + "\n")
+        fh.write(json.dumps({"ts": "2026-08-14 10:02:03", "phase": "continuous",
+                             "stocks": {"SZ300487": {"price": 12.0}}}) + "\n")
     kline = os.path.join(tmp_data, "kline")
     os.makedirs(kline, exist_ok=True)
     with open(os.path.join(kline, "SZ300487.json"), "w", encoding="utf-8") as fh:
@@ -152,7 +153,8 @@ def test_intraday_latest(api):
     assert r["meta"]["data_date"] == "2026-08-14"
     assert data["ts"] == "2026-08-14 10:02:03"
     assert data["available"] is True
-    assert data["stocks"] == {}  # 行情帧为空时，事实池仍须保留
+    assert data["stocks"] == {}  # 轻量接口不下发 5000 只全市场明细
+    assert data["quote_count"] == 1
     assert data["limitup"][0]["stock_id"] == "SZ300487"
     assert data["limitup"][0]["reason"] == "存储"
     assert data["model_hits"][0]["model_hit"] == ["breakout"]

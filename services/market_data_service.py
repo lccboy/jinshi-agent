@@ -151,7 +151,11 @@ def intraday_latest():
                            "ts": event.get("ts", "")})
         seen.add(sid)
 
-    result = dict(snapshot)
+    snapshot_stocks = snapshot.get("stocks") or {}
+    result = {key: value for key, value in snapshot.items() if key != "stocks"}
+    # 前端实时题材只需涨停池；5000+ 只行情保留在 append-only NDJSON，不随轮询重复下发。
+    result["stocks"] = {}
+    result["quote_count"] = len(snapshot_stocks)
     result.update({"available": True, "data_date": date_str, "limitup": limitups,
                    "model_hits": model_hits, "events": events})
     return result

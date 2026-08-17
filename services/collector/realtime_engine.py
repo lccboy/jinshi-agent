@@ -15,6 +15,7 @@ import json
 import os
 
 from .indicators import hhv
+from .limit_detect import detect_from_quotes
 
 # 默认阈值（config/strategy.json 可覆盖）
 VOL_SURGE_RATIO = 2.0     # 量比 ≥ 2.0 → volume_surge
@@ -201,25 +202,77 @@ def update_pool_from_events(pool, events):
     return pool
 
 
+def _limitup_transition_events(quotes, pool, frozen=None, instruments=None, date_str=None, now=None):
+    """腾讯全市场快照 → 涨停/炸板状态切换事件；缺失行情不视为炸板。"""
+    frozen = frozen or {}
+    instruments = instruments or {}
+    decorated = {}
+    names, list_dates = {}, {}
+    for sid, quote in quotes.items():
+        rec = instruments.get(sid) or {}
+        item = dict(quote)
+        item.setdefault("code", sid[2:] if len(sid) == 8 else sid)
+        item["is_st"] = bool(rec.get("is_st", item.get("is_st", False)))
+        decorated[sid] = item
+        names[sid] = rec.get("name") or quote.get("name") or ""
+        list_dates[sid] = rec.get("list_date")
+
+    detected = detect_from_quotes(decorated, name_of=names, list_date_of=list_dates, today=date_str)
+    current = {sid for sid, result in detected.items() if result.get("is_limit_up")}
+    active = set(((pool.get("pools") or {}).get("limitup") or {}).keys())
+    ts = now or _ts_now()
+    events = []
+    for sid in sorted(current - active):
+        events.append({"ts": ts, "type": "limitup", "stock_id": sid,
+                       "score": (frozen.get(sid) or {}).get("base_score", 0),
+                       "price": decorated[sid].get("price", 0), "detail": "腾讯行情实时涨停",
+                       "source": "tencent"})
+    # 仅处理本帧实际返回的股票；批次失败/响应缺失不能把旧池误判为炸板。
+    for sid in sorted((active & set(decorated)) - current):
+        events.append({"ts": ts, "type": "broken", "stock_id": sid, "score": 0,
+                       "price": decorated[sid].get("price", 0), "detail": "腾讯行情检测炸板",
+                       "source": "tencent"})
+    return events
+
+
 def scan_snapshot(facts_dir, date_str, frozen, quotes, prev_quotes=None,
-                  vol_surge_ratio=VOL_SURGE_RATIO, now=None):
+                  vol_surge_ratio=VOL_SURGE_RATIO, now=None, instruments=None):
     """一帧快照全量扫描：每只股票事件判定 + 预警池维护 + events 追加。
 
     frozen: {sid: build_frozen_ctx(...)}（昨日定格）
     quotes: 腾讯行情 {sid: quote}
     返回新事件列表。
     """
-    events = []
+    pool = load_pool(facts_dir, date_str) or _empty_pool()
+    events = _limitup_transition_events(quotes, pool, frozen=frozen,
+                                        instruments=instruments, date_str=date_str, now=now)
     prev_quotes = prev_quotes or {}
     for sid, quote in quotes.items():
         ctx = frozen.get(sid)
         if not ctx:
             continue
-        events.extend(detect_events(ctx, quote, prev_quotes.get(sid),
-                                    vol_surge_ratio=vol_surge_ratio, now=now))
+        # 涨停/炸板由 limit_detect 对全市场统一判定；此处只运行模型与量比事件。
+        events.extend(e for e in detect_events(ctx, quote, prev_quotes.get(sid),
+                                               vol_surge_ratio=vol_surge_ratio, now=now)
+                      if e.get("type") not in ("limitup", "broken"))
+    if events:
+        existing = load_events(facts_dir, date_str)
+        seen_once = {(e.get("type"), e.get("stock_id")) for e in existing
+                     if e.get("type") == "volume_surge"}
+        alerts = (pool.get("pools") or {}).get("alert") or {}
+        filtered = []
+        for event in events:
+            key = (event.get("type"), event.get("stock_id"))
+            if event.get("type") == "volume_surge" and key in seen_once:
+                continue
+            if event.get("type") == "signal_hit":
+                prior_models = set((alerts.get(event.get("stock_id")) or {}).get("model_hit") or [])
+                if set(event.get("models") or []).issubset(prior_models):
+                    continue
+            filtered.append(event)
+        events = filtered
     if events:
         append_events(facts_dir, events, date_str)
-        pool = load_pool(facts_dir, date_str) or _empty_pool()
         pool["data_date"] = date_str
         update_pool_from_events(pool, events)
         save_pool(pool, facts_dir, date_str)

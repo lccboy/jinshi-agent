@@ -10,6 +10,7 @@ from services.collector.realtime_engine import (
     load_pool,
     load_frozen_context,
     save_pool,
+    scan_snapshot,
     update_pool_from_events,
 )
 
@@ -166,3 +167,47 @@ def test_load_frozen_context_uses_latest_previous_strategy(tmp_path):
     frozen, source_date = load_frozen_context(str(facts), "2026-08-17", str(kline))
     assert source_date == "2026-08-14"
     assert frozen["SZ300001"]["models"] == ["breakout"]
+
+
+def test_scan_snapshot_detects_limitup_outside_strategy_universe(tmp_path):
+    quotes = {
+        "SH600001": {"code": "600001", "price": 10.50, "preclose": 10.0,
+                     "limit_up": 0, "vol_ratio": 1.0, "change_pct": 5.0},
+    }
+    instruments = {
+        "SH600001": {"name": "ST测试", "is_st": True, "list_date": "2000-01-01"},
+    }
+    events = scan_snapshot(str(tmp_path), "2026-08-17", {}, quotes,
+                           instruments=instruments, now="2026-08-17T09:35:00")
+    assert [e["type"] for e in events] == ["limitup"]
+    pool = load_pool(str(tmp_path), "2026-08-17")
+    assert pool["pools"]["limitup"]["SH600001"]["detected_by"] == "tencent"
+
+
+def test_scan_snapshot_tracks_broken_without_removing_missing_quotes(tmp_path):
+    pool = {"pools": {"limitup": {
+                "SH600001": {"status": "active"},
+                "SZ000002": {"status": "active"},
+            }, "ladder": {}, "alert": {}, "candidate": {}, "watchlist": {}}, "removed": {}}
+    save_pool(pool, str(tmp_path), "2026-08-17")
+    quotes = {"SH600001": {"code": "600001", "price": 10.80, "preclose": 10.0,
+                            "limit_up": 11.0, "vol_ratio": 1.0, "change_pct": 8.0}}
+    events = scan_snapshot(str(tmp_path), "2026-08-17", {}, quotes,
+                           now="2026-08-17T10:47:00")
+    assert [e["type"] for e in events] == ["broken"]
+    updated = load_pool(str(tmp_path), "2026-08-17")
+    assert "SH600001" not in updated["pools"]["limitup"]
+    assert "SZ000002" in updated["pools"]["limitup"]  # 本帧缺失不能误判炸板
+
+
+def test_scan_snapshot_deduplicates_model_and_volume_events(tmp_path):
+    frozen = {"SH600001": {"sid": "SH600001", "models": ["breakout"],
+                             "base_score": 88, "box_top": 10.4, "prev_close": 10.0}}
+    quotes = {"SH600001": {"code": "600001", "price": 10.5, "preclose": 10.0,
+                            "limit_up": 11.0, "vol_ratio": 2.5, "change_pct": 5.0}}
+    first = scan_snapshot(str(tmp_path), "2026-08-17", frozen, quotes,
+                          now="2026-08-17T10:00:00")
+    second = scan_snapshot(str(tmp_path), "2026-08-17", frozen, quotes,
+                           now="2026-08-17T10:00:30")
+    assert {e["type"] for e in first} == {"volume_surge", "signal_hit"}
+    assert second == []

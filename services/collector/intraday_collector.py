@@ -122,7 +122,11 @@ def collect_once(codes, watch_codes=None, phase="open", include_quotes=False):
     codes: 全市场/子集股票代码列表；watch_codes: 盘中关注池（涨停池/候选池成分）。
     返回 build_snapshot 快照（含 stocks 行情段）。
     """
+    if not codes:
+        raise RuntimeError("股票池为空，拒绝启动腾讯实时行情采集")
     quotes = fetch_quotes(codes)
+    if not quotes:
+        raise RuntimeError("腾讯行情返回空，拒绝写入伪实时快照")
     ts = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     stocks = {sid: {"price": q["price"], "change": q["change"],
                     "change_pct": q["change_pct"], "volRatio": q["vol_ratio"],
@@ -130,6 +134,26 @@ def collect_once(codes, watch_codes=None, phase="open", include_quotes=False):
               for sid, q in quotes.items()}
     snapshot = build_snapshot(ts, phase, stocks=stocks)
     return (snapshot, quotes) if include_quotes else snapshot
+
+
+def make_realtime_handler(facts_dir, date_str, kline_dir, stocks_path,
+                          scan_fn=None):
+    """构造每帧处理器：全市场涨停检测 + 昨日冻结模型命中。"""
+    from .realtime_engine import load_frozen_context, scan_snapshot
+    frozen, source_date = load_frozen_context(facts_dir, date_str, kline_dir)
+    instruments = {}
+    if stocks_path and os.path.isfile(stocks_path):
+        with open(stocks_path, encoding="utf-8") as fh:
+            instruments = json.load(fh)
+    scanner = scan_fn or scan_snapshot
+    previous = {}
+
+    def on_quotes(quotes):
+        scanner(facts_dir, date_str, frozen, quotes, previous, instruments=instruments)
+        previous.clear()
+        previous.update(quotes)
+
+    return on_quotes, frozen, source_date
 
 
 def run_loop(intraday_root, date_str, codes, interval=3, phase="open", max_snapshots=0, dry=False):
@@ -230,22 +254,14 @@ def main(argv=None):
     else:
         collect_fn, on_quotes = collect_once, None
         if args.realtime:
-            from .realtime_engine import load_frozen_context, scan_snapshot
-            frozen, source_date = load_frozen_context(args.facts, args.date, args.kline)
-            if not frozen:
-                print(f"[ERROR] {args.date} 之前无策略冻结上下文")
-                return 1
-            previous = {}
+            stocks_path = os.path.join(os.path.dirname(args.facts), "normalized", "stocks.json")
+            on_quotes, frozen, source_date = make_realtime_handler(
+                args.facts, args.date, args.kline, stocks_path)
 
             def collect_fn(codes, phase="open"):
                 return collect_once(codes, phase=phase, include_quotes=True)
 
-            def on_quotes(quotes):
-                scan_snapshot(args.facts, args.date, frozen, quotes, previous)
-                previous.clear()
-                previous.update(quotes)
-
-            print(f"[READY] 实时事件引擎冻结日={source_date} 股票={len(frozen)}")
+            print(f"[READY] 腾讯全市场涨停检测；模型冻结日={source_date or '无'} 股票={len(frozen)}")
         n = run_market_session(args.intraday, args.date, codes, collect_fn=collect_fn, on_quotes=on_quotes)
     print(f"[OK] 采集完成 {n} 个快照 → {os.path.join(args.intraday, args.date)}")
     return 0

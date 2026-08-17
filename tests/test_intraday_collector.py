@@ -3,10 +3,13 @@
 import json
 import os
 
+import pytest
+
 from services.collector.intraday_collector import (
     append_snapshot,
     build_snapshot,
     cadence_for_time,
+    make_realtime_handler,
     phase_for_time,
     read_snapshots,
     run_market_session,
@@ -112,3 +115,35 @@ def test_run_market_session_switches_cadence_and_stops(tmp_path):
     meta = json.loads((tmp_path / "2026-08-17/meta.json").read_text(encoding="utf-8"))
     assert meta["status"] == "done" and meta["snapshots"] == 3
     assert len(scanned) == 3
+
+
+def test_realtime_handler_passes_all_quotes_and_master_data(tmp_path):
+    stocks_path = tmp_path / "stocks.json"
+    stocks_path.write_text(json.dumps({"SH600001": {"name": "测试", "is_st": False}}), encoding="utf-8")
+    calls = []
+
+    def fake_scan(facts, date_str, frozen, quotes, prev_quotes=None, instruments=None):
+        calls.append((facts, date_str, frozen, quotes, prev_quotes, instruments))
+
+    handler, frozen, source_date = make_realtime_handler(
+        str(tmp_path / "facts"), "2026-08-17", str(tmp_path / "kline"),
+        str(stocks_path), scan_fn=fake_scan,
+    )
+    quotes = {"SH600001": {"price": 11.0, "preclose": 10.0, "limit_up": 11.0}}
+    handler(quotes)
+    assert frozen == {} and source_date is None  # 无昨日策略也必须运行全市场涨停检测
+    assert calls[0][3] == quotes
+    assert calls[0][5]["SH600001"]["name"] == "测试"
+
+
+def test_collect_once_rejects_empty_tencent_response(monkeypatch):
+    import services.collector.intraday_collector as collector
+    monkeypatch.setattr(collector, "fetch_quotes", lambda codes: {})
+    with pytest.raises(RuntimeError, match="腾讯行情返回空"):
+        collector.collect_once(["600001"], phase="open")
+
+
+def test_collect_once_rejects_empty_universe():
+    import services.collector.intraday_collector as collector
+    with pytest.raises(RuntimeError, match="股票池为空"):
+        collector.collect_once([], phase="open")
