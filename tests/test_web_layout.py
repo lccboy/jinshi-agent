@@ -66,3 +66,10 @@ def test_theme_model_hits_use_chinese_names_and_group_live_feed_by_time():
         assert marker in js
     assert ".live-time-group" in css
     assert ".live-model-stock" in css
+
+
+def test_realtime_limitup_card_marks_reused_reason_date():
+    js = (WEB / "assets" / "app.js").read_text(encoding="utf-8")
+    assert "reason_is_history" in js
+    assert "reason_date" in js
+    assert "沿用" in js

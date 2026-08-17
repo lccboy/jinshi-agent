@@ -37,21 +37,29 @@ def make_client(tmp_data, tmp_path):
     with open(os.path.join(facts, "pool.json"), "w", encoding="utf-8") as fh:
         json.dump({"data_date": "2026-08-14", "pools": {
             "alert": {"SZ300487": {"score": 80, "model_hit": ["breakout"], "entry_time": "10:00:00"}},
-            "limitup": {"SZ300487": {"entry_time": "10:00:00"}},
+            "limitup": {"SZ300487": {"entry_time": "10:00:00"},
+                        "SH600001": {"entry_time": "10:01:00"}},
         }}, fh)
     with open(os.path.join(facts, "events.json"), "w", encoding="utf-8") as fh:
         json.dump({"data_date": "2026-08-14", "events": [{"ts": "2026-08-14T10:00:00", "type": "signal_hit", "stock_id": "SZ300487"}]}, fh)
     with open(os.path.join(facts, "limitup.json"), "w", encoding="utf-8") as fh:
         json.dump({"SZ300487": {"reason": "存储", "boards": "首板"}}, fh)
+    previous_facts = os.path.join(tmp_data, "facts", "2026-08-13")
+    os.makedirs(previous_facts, exist_ok=True)
+    with open(os.path.join(previous_facts, "limitup.json"), "w", encoding="utf-8") as fh:
+        json.dump({"SH600001": {"reason": "机器人概念", "primary": "kpl", "sourceCount": 2,
+                                  "sources": {"kpl": {"reason": "机器人概念"},
+                                              "ths": {"reason": "自动化设备"}}}}, fh, ensure_ascii=False)
     intraday = os.path.join(tmp_data, "intraday", "2026-08-14")
     os.makedirs(intraday, exist_ok=True)
     with open(os.path.join(intraday, "snapshots.ndjson"), "w", encoding="utf-8") as fh:
         fh.write(json.dumps({"ts": "2026-08-14 10:02:03", "phase": "continuous",
-                             "stocks": {"SZ300487": {"price": 12.0, "change_pct": 9.98}}}) + "\n")
+                             "stocks": {"SZ300487": {"price": 12.0, "change_pct": 9.98},
+                                        "SH600001": {"price": 11.0, "change_pct": 10.0}}}) + "\n")
     normalized = os.path.join(tmp_data, "normalized")
     os.makedirs(normalized, exist_ok=True)
     with open(os.path.join(normalized, "stocks.json"), "w", encoding="utf-8") as fh:
-        json.dump({"SZ300487": {"name": "蓝晓科技"}}, fh, ensure_ascii=False)
+        json.dump({"SZ300487": {"name": "蓝晓科技"}, "SH600001": {"name": "测试股份"}}, fh, ensure_ascii=False)
     kline = os.path.join(tmp_data, "kline")
     os.makedirs(kline, exist_ok=True)
     with open(os.path.join(kline, "SZ300487.json"), "w", encoding="utf-8") as fh:
@@ -158,9 +166,15 @@ def test_intraday_latest(api):
     assert data["ts"] == "2026-08-14 10:02:03"
     assert data["available"] is True
     assert data["stocks"] == {}  # 轻量接口不下发 5000 只全市场明细
-    assert data["quote_count"] == 1
-    assert data["limitup"][0]["stock_id"] == "SZ300487"
-    assert data["limitup"][0]["reason"] == "存储"
+    assert data["quote_count"] == 2
+    limitups = {item["stock_id"]: item for item in data["limitup"]}
+    assert limitups["SZ300487"]["reason"] == "存储"
+    assert limitups["SZ300487"]["reason_is_history"] is False
+    assert limitups["SH600001"]["reason"] == "机器人概念"
+    assert limitups["SH600001"]["reason_date"] == "2026-08-13"
+    assert limitups["SH600001"]["reason_is_history"] is True
+    assert limitups["SH600001"]["sourceCount"] == 2
+    assert limitups["SH600001"]["sources"]["ths"]["reason"] == "自动化设备"
     assert data["model_hits"][0]["model_hit"] == ["breakout"]
     assert data["model_hits"][0]["model_names"] == ["②横盘突破"]
     assert data["model_hits"][0]["name"] == "蓝晓科技"

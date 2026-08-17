@@ -301,10 +301,12 @@
         ? '<button type="button" class="reason-pop theme-reason" data-sid="' + esc(sid) + '">' + esc(reason) + '<span>' + entry.sourceCount + '源</span></button>'
         : '<span class="theme-reason-text">' + esc(reason) + '</span>';
       var hit = modelHitMap[sid];
+      var reasonSource = entry.reason_is_history && entry.reason_date ? '开盘啦 · 沿用 ' + entry.reason_date : '开盘啦';
       var modelHtml = hit ? '<div class="theme-model-hit">🎯 ' + modelNames(hit).map(esc).join(' · ') +
         (hit.score != null ? ' <b>' + esc(hit.score) + '</b>' : '') + '</div>' : '';
       return '<div class="theme-stock-card zt"><div class="theme-stock-top">' + stk(sid, code6(sid) + ' ' + name) +
-        '<span class="stock-zt-badge">' + esc(entry.boards || '涨停') + '</span></div><div class="theme-stock-reason"><label>开盘啦</label>' + reasonHtml + '</div><small>' +
+        '<span class="stock-zt-badge">' + esc(entry.boards || '涨停') + '</span></div><div class="theme-stock-reason"><label' +
+        (entry.reason_is_history ? ' class="history"' : '') + '>' + esc(reasonSource) + '</label>' + reasonHtml + '</div><small>' +
         (((slim[sid] || {}).t || []).slice(0, 4).map(function (x) { return esc(((LIBS.themes || {})[x] || {}).name || x); }).join(' · ') || '暂无标签') + '</small>' + modelHtml + '</div>';
     }).join('');
     $('themeContent').innerHTML = '<section class="theme-summary"><h2>' + esc(t.name || tid) + '</h2>' +

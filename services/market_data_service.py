@@ -90,7 +90,10 @@ def history_for_stock(sid):
         if sid in strat:
             entry["strategy"] = strat[sid]
         pool = (load_json("facts", date_str, "pool.json") or {}).get("pools") or {}
-        entry["pool"] = {"alert": sid in (pool.get("alert") or {}), "candidate": sid in (pool.get("candidate") or {})}
+        pool_flags = {"alert": sid in (pool.get("alert") or {}),
+                      "candidate": sid in (pool.get("candidate") or {})}
+        if any(pool_flags.values()):
+            entry["pool"] = pool_flags
         lu = load_json("facts", date_str, "limitup.json") or {}
         if sid in lu:
             entry["limitup"] = lu[sid]
@@ -101,6 +104,29 @@ def history_for_stock(sid):
         if any(k in entry for k in ("strategy", "pool", "limitup", "events")):
             timeline.append(entry)
     return timeline
+
+
+def recent_limitup_reasons(date_str, stock_ids):
+    """为当天缺原因的实时涨停股查找最近一个历史交易日原因。"""
+    missing = set(stock_ids)
+    found = {}
+    day_dirs = sorted(glob.glob(_path("facts", "*")), reverse=True)
+    for day_dir in day_dirs:
+        reason_date = os.path.basename(day_dir)
+        if reason_date >= date_str or not re.match(r"^\d{4}-\d{2}-\d{2}$", reason_date):
+            continue
+        doc = load_json("facts", reason_date, "limitup.json") or {}
+        for sid in list(missing):
+            entry = doc.get(sid)
+            if not isinstance(entry, dict) or not str(entry.get("reason") or "").strip():
+                continue
+            item = dict(entry)
+            item.update({"reason_date": reason_date, "reason_is_history": True})
+            found[sid] = item
+            missing.remove(sid)
+        if not missing:
+            break
+    return found
 
 
 def intraday_latest():
@@ -139,10 +165,18 @@ def intraday_latest():
     snapshot_stocks = snapshot.get("stocks") or {}
     model_name_map = load_model_names()
 
+    missing_reason_ids = [sid for sid in limitup_pool
+                          if not str((reasons.get(sid) or {}).get("reason") or "").strip()]
+    fallback_reasons = recent_limitup_reasons(date_str, missing_reason_ids)
     limitups = []
     for sid, pool_entry in limitup_pool.items():
         item = {"stock_id": sid, "name": (instruments.get(sid) or {}).get("name", sid)}
-        item.update(reasons.get(sid) or {})
+        current_reason = reasons.get(sid) or {}
+        if str(current_reason.get("reason") or "").strip():
+            item.update(current_reason)
+            item.update({"reason_date": date_str, "reason_is_history": False})
+        elif sid in fallback_reasons:
+            item.update(fallback_reasons[sid])
         for key in ("entry_time", "score", "status"):
             if key in (pool_entry or {}):
                 item[key] = pool_entry[key]
