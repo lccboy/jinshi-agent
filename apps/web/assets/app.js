@@ -11,6 +11,11 @@
   var selectedSectorId = null;
   var expandedThemeIds = {};
   var selectedThemeConceptKey = null;
+  var themeRealtime = false;
+  var themeRealtimeTimer = null;
+  var themeRealtimeView = null;
+  var themeArchiveDay = null;
+  var themeRealtimeStatus = '';
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -45,8 +50,12 @@
     render();
   }
   function limitupSet() {
-    var view = CACHE[currentDay] || {};
+    var view = activeThemeView();
     return new Set((view.limitup || []).map(function (e) { return e.stock_id; }));
+  }
+
+  function activeThemeView() {
+    return (themeRealtime && themeRealtimeView) ? themeRealtimeView : (CACHE[currentDay] || {});
   }
   function memberTable(sids, total) {
     var slim = LIBS.stocks_slim || {}, sectors = LIBS.sectors || {}, themes = LIBS.themes || {};
@@ -179,7 +188,10 @@
       '<div class="panel-search"><input id="themeSearch" placeholder="搜索题材…"></div>' +
       '<div class="panel-sort"><span class="active">🔥 当日涨停数排序</span><span>成分股</span></div>' +
       '<div id="themeList" class="theme-nav-list"><div class="loading">加载中…</div></div></aside>' +
-      '<section class="theme-detail"><div class="detail-bar"><h1 id="themeTitle">🏆 金十题材库</h1><span id="themeCount"></span></div>' +
+      '<section class="theme-detail"><div class="detail-bar"><h1 id="themeTitle">🏆 金十题材库</h1><div class="theme-mode-controls">' +
+      '<select id="themeDateSel" class="theme-date-select" aria-label="题材历史日期"></select>' +
+      '<button type="button" id="themeRealtimeToggle" class="theme-realtime-toggle" aria-pressed="false"><i></i>今日实时</button>' +
+      '<span id="themeModeStatus">历史收盘</span></div><span id="themeCount"></span></div>' +
       '<div id="themeContent" class="detail-content"><div class="empty-state">点击左侧题材查看详情</div></div></section>' +
       '<aside class="theme-live"><div class="live-panel-title"><span class="live-dot"></span>实时直播播报</div>' +
       '<div id="themeLiveList" class="live-feed"></div></aside></div>';
@@ -214,6 +226,7 @@
     $('themeList').innerHTML = ids.length ? html : '<div class="muted" style="padding:12px">无匹配题材</div>';
     renderThemeDetail(view, selectedThemeId);
     renderThemeLive(view);
+    syncThemeModeControls(view);
   }
 
   function themeConceptKey(level, parent, name) {
@@ -223,7 +236,7 @@
   function locateThemeConcept(tid, key) {
     selectedThemeId = tid;
     selectedThemeConceptKey = key;
-    renderThemeWorkbench(CACHE[currentDay]);
+    renderThemeWorkbench(activeThemeView());
     window.setTimeout(function () {
       var row = document.querySelector('.concept-table [data-concept-key="' + key + '"]');
       if (!row) return;
@@ -277,6 +290,8 @@
       }
     });
     var themeLimitups = (view.limitup || []).filter(function (entry) { return ztIds.has(entry.stock_id); });
+    var modelHitMap = {};
+    (view.realtime_model_hits || []).forEach(function (hit) { modelHitMap[hit.stock_id] = hit; });
     var cards = themeLimitups.map(function (entry) {
       var sid = entry.stock_id;
       var name = (slim[sid] || {}).n || sid;
@@ -284,9 +299,12 @@
       var reasonHtml = entry.sourceCount > 1
         ? '<button type="button" class="reason-pop theme-reason" data-sid="' + esc(sid) + '">' + esc(reason) + '<span>' + entry.sourceCount + '源</span></button>'
         : '<span class="theme-reason-text">' + esc(reason) + '</span>';
+      var hit = modelHitMap[sid];
+      var modelHtml = hit ? '<div class="theme-model-hit">🎯 ' + (hit.model_hit || []).map(esc).join(' · ') +
+        (hit.score != null ? ' <b>' + esc(hit.score) + '</b>' : '') + '</div>' : '';
       return '<div class="theme-stock-card zt"><div class="theme-stock-top">' + stk(sid, code6(sid) + ' ' + name) +
         '<span class="stock-zt-badge">' + esc(entry.boards || '涨停') + '</span></div><div class="theme-stock-reason"><label>开盘啦</label>' + reasonHtml + '</div><small>' +
-        (((slim[sid] || {}).t || []).slice(0, 4).map(function (x) { return esc(((LIBS.themes || {})[x] || {}).name || x); }).join(' · ') || '暂无标签') + '</small></div>';
+        (((slim[sid] || {}).t || []).slice(0, 4).map(function (x) { return esc(((LIBS.themes || {})[x] || {}).name || x); }).join(' · ') || '暂无标签') + '</small>' + modelHtml + '</div>';
     }).join('');
     $('themeContent').innerHTML = '<section class="theme-summary"><h2>' + esc(t.name || tid) + '</h2>' +
       '<p>题材代码 ' + esc(tid) + ' · ' + (t.tree || []).length + ' 个主概念 · 当日涨停 ' + ztIds.size + ' 只 · 成分股 ' + sids.length + ' 只</p></section>' +
@@ -300,11 +318,129 @@
   function renderThemeLive(view) {
     if (!$('themeLiveList')) return;
     var events = (view.events || []).slice(0, 80);
-    $('themeLiveList').innerHTML = events.map(function (e) {
+    var hits = (view.realtime_model_hits || []).map(function (hit) {
+      return '<div class="live-feed-item model"><div><span class="live-event-badge">🎯 模型命中</span><span class="live-time">' +
+        esc(String(hit.ts || '').slice(-8, -3)) + '</span></div><p>' + stk(hit.stock_id, code6(hit.stock_id)) + ' ' +
+        esc((hit.model_hit || []).join(' · ')) + (hit.score != null ? ' · ' + esc(hit.score) + '分' : '') + '</p></div>';
+    }).join('');
+    $('themeLiveList').innerHTML = hits + events.map(function (e) {
       return '<div class="live-feed-item"><div><span class="live-event-badge">' + esc(EVT_META[e.type] || e.type || '动态') + '</span>' +
         '<span class="live-time">' + esc(String(e.ts || '').slice(11, 16)) + '</span></div>' +
         '<p>' + (e.stock_id ? stk(e.stock_id, code6(e.stock_id)) + ' ' : '') + esc(e.detail || '') + '</p></div>';
     }).join('') || '<div class="muted" style="padding:14px">暂无实时播报</div>';
+  }
+
+  function localToday() {
+    var d = new Date(), y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, '0'), day = String(d.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + day;
+  }
+
+  function buildRealtimeThemeView(payload) {
+    var base = CACHE[themeArchiveDay || currentDay] || {};
+    var view = Object.assign({}, base);
+    view.date = payload.data_date || localToday();
+    view.limitup = payload.limitup || [];
+    view.events = payload.events || [];
+    view.realtime_model_hits = payload.model_hits || [];
+    view.realtime = { ts: payload.ts || '', phase: payload.phase || '', available: !!payload.available };
+    view.market = Object.assign({}, base.market || {}, { limit_up: view.limitup.length });
+    var ids = new Set(view.limitup.map(function (entry) { return entry.stock_id; }));
+    view.theme_limitup = {};
+    Object.keys(LIBS.theme_stocks || {}).forEach(function (tid) {
+      view.theme_limitup[tid] = (LIBS.theme_stocks[tid] || []).filter(function (sid) { return ids.has(sid); }).sort();
+    });
+    view.theme_concept_limitup = {};
+    Object.keys(LIBS.themes || {}).forEach(function (tid) {
+      var entries = [];
+      ((LIBS.themes[tid] || {}).tree || []).forEach(function (main) {
+        var mainMembers = new Set(main.st || []);
+        (main.l2 || []).forEach(function (sub) {
+          (sub.st || []).forEach(function (sid) { mainMembers.add(sid); });
+          var subHits = (sub.st || []).filter(function (sid) { return ids.has(sid); }).sort();
+          if (subHits.length) entries.push({ level: 2, parent: main.n1 || '', name: sub.n2 || '', stock_ids: subHits });
+        });
+        var mainHits = Array.from(mainMembers).filter(function (sid) { return ids.has(sid); }).sort();
+        if (mainHits.length) entries.push({ level: 1, name: main.n1 || '', stock_ids: mainHits });
+      });
+      entries.sort(function (a, b) { return b.stock_ids.length - a.stock_ids.length || a.level - b.level || a.name.localeCompare(b.name); });
+      view.theme_concept_limitup[tid] = entries;
+    });
+    return view;
+  }
+
+  function syncThemeModeControls(view) {
+    var select = $('themeDateSel'), toggle = $('themeRealtimeToggle'), status = $('themeModeStatus');
+    if (!select || !toggle || !status) return;
+    select.innerHTML = DAYS.map(function (d) { return '<option value="' + esc(d.date) + '">' + esc(d.date) + '</option>'; }).join('');
+    if (themeRealtime) {
+      var today = localToday();
+      if (!DAYS.some(function (d) { return d.date === today; })) {
+        select.insertAdjacentHTML('afterbegin', '<option value="' + esc(today) + '">' + esc(today) + '（盘中）</option>');
+      }
+      select.value = today;
+    } else select.value = themeArchiveDay || currentDay;
+    select.disabled = themeRealtime;
+    toggle.classList.toggle('active', themeRealtime);
+    toggle.setAttribute('aria-pressed', themeRealtime ? 'true' : 'false');
+    status.textContent = themeRealtime ? (themeRealtimeStatus || '今日实时 · 正在连接') : '历史收盘 · 已归档';
+    status.className = themeRealtime ? 'realtime' : 'archive';
+    if ($('themeCount') && themeRealtime) {
+      $('themeCount').textContent += ' · 模型命中 ' + ((view.realtime_model_hits || []).length) + ' 只';
+    }
+  }
+
+  function realtimeDelay(phase) {
+    return /auction|continuous|trading|open/i.test(String(phase || '')) ? 3000 : 30000;
+  }
+
+  function scheduleThemeRealtime(delay) {
+    window.clearTimeout(themeRealtimeTimer);
+    if (!themeRealtime || currentView !== 'theme') return;
+    themeRealtimeTimer = window.setTimeout(refreshThemeRealtime, delay);
+  }
+
+  function refreshThemeRealtime() {
+    if (!themeRealtime || currentView !== 'theme') return;
+    fetchJSON('api/intraday/latest', 'no-store').then(function (result) {
+      var payload = result.data || {};
+      var isToday = payload.data_date === localToday();
+      if (!payload.available || !isToday) {
+        payload = { available: false, data_date: localToday(), limitup: [], model_hits: [], events: [], stocks: {} };
+        themeRealtimeStatus = isToday ? '今日实时 · 暂无快照' : '今日实时 · 数据尚未启动';
+      } else {
+        themeRealtimeStatus = '今日实时 · ' + (payload.ts ? String(payload.ts).slice(11, 19) : '已刷新');
+      }
+      themeRealtimeView = buildRealtimeThemeView(payload);
+      var detailMap = {};
+      (payload.limitup || []).forEach(function (entry) { detailMap[entry.stock_id] = entry; });
+      DETAIL_CACHE[payload.data_date || localToday()] = { limitup: detailMap };
+      renderThemeWorkbench(themeRealtimeView);
+      scheduleThemeRealtime(realtimeDelay(payload.phase));
+    }).catch(function () {
+      themeRealtimeStatus = '今日实时 · 连接失败';
+      themeRealtimeView = buildRealtimeThemeView({ available: false, data_date: localToday(), limitup: [], model_hits: [], events: [] });
+      renderThemeWorkbench(themeRealtimeView);
+      scheduleThemeRealtime(30000);
+    });
+  }
+
+  function startThemeRealtime() {
+    if (themeRealtime) return;
+    themeArchiveDay = currentDay;
+    themeRealtime = true;
+    themeRealtimeStatus = '今日实时 · 正在连接';
+    syncThemeModeControls(activeThemeView());
+    refreshThemeRealtime();
+  }
+
+  function stopThemeRealtime(restore) {
+    themeRealtime = false;
+    themeRealtimeView = null;
+    themeRealtimeStatus = '';
+    window.clearTimeout(themeRealtimeTimer);
+    themeRealtimeTimer = null;
+    if (restore && themeArchiveDay && currentDay !== themeArchiveDay) currentDay = themeArchiveDay;
+    themeArchiveDay = null;
   }
 
   /* 板块强度：参考 KPL 左侧排行 + 右侧详情格局。 */
@@ -390,10 +526,11 @@
     pop.dataset.anchorX = x;
     pop.dataset.anchorY = y;
     place(pop, x, y);
-    if (DETAIL_CACHE[currentDay]) { renderDetail(sid, pop, x, y); return; }
-    fetchJSON(dayFile(currentDay).replace('.json', '.detail.json')).then(function (d) {
-      DETAIL_CACHE[currentDay] = d;
-      renderDetail(sid, pop, x, y);
+    var detailDay = themeRealtime ? localToday() : currentDay;
+    if (DETAIL_CACHE[detailDay]) { renderDetail(sid, pop, x, y, detailDay); return; }
+    fetchJSON(dayFile(detailDay).replace('.json', '.detail.json')).then(function (d) {
+      DETAIL_CACHE[detailDay] = d;
+      renderDetail(sid, pop, x, y, detailDay);
     }).catch(function () {
       pop.innerHTML = '<div class="pp-head"><span>详情加载失败</span><span class="pp-close" onclick="document.getElementById(\'popup\').style.display=\'none\'">×</span></div>';
     });
@@ -402,8 +539,8 @@
   var SRC_META = { kpl: { label: '开盘啦', color: '#e24b4a' }, jygs: { label: '韭研公社', color: '#d29922' }, ths: { label: '同花顺', color: '#2f6fdb' }, xgb: { label: '选股吧', color: '#8e44ad' } };
   var SRC_ORDER = ['kpl', 'jygs', 'ths', 'xgb'];
 
-  function renderDetail(sid, pop, x, y) {
-    var d = DETAIL_CACHE[currentDay] || {};
+  function renderDetail(sid, pop, x, y, detailDay) {
+    var d = DETAIL_CACHE[detailDay || currentDay] || {};
     var e = (d.limitup || {})[sid];
     if (!e) { pop.innerHTML = '<div class="pp-head"><span>无详情</span><span class="pp-close" onclick="document.getElementById(\'popup\').style.display=\'none\'">×</span></div>'; return; }
     var sources = e.sources || {};
@@ -453,13 +590,29 @@
     tab.addEventListener('click', function () {
       document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
       tab.classList.add('active');
+      if (tab.dataset.view !== 'theme' && themeRealtime) stopThemeRealtime(false);
       currentView = tab.dataset.view;
       if (history.replaceState) history.replaceState(null, '', '#' + currentView);
       render();
     });
   });
-  $('dateSel').addEventListener('change', function () { loadDay(this.value); });
+  $('dateSel').addEventListener('change', function () {
+    if (themeRealtime) stopThemeRealtime(false);
+    loadDay(this.value);
+  });
   document.addEventListener('click', function (ev) {
+    var realtimeToggle = ev.target.closest ? ev.target.closest('#themeRealtimeToggle') : null;
+    if (realtimeToggle) {
+      ev.stopPropagation();
+      if (themeRealtime) {
+        var restoreDay = themeArchiveDay || currentDay;
+        stopThemeRealtime(false);
+        currentDay = restoreDay;
+        $('dateSel').value = restoreDay;
+        render();
+      } else startThemeRealtime();
+      return;
+    }
     var chip = ev.target.closest ? ev.target.closest('.tag-chip') : null;
     if (chip) { ev.stopPropagation(); goTag(chip.dataset.go, chip.dataset.id); return; }
     var themeToggle = ev.target.closest ? ev.target.closest('.theme-toggle') : null;
@@ -467,7 +620,7 @@
       ev.stopPropagation();
       var toggleTid = themeToggle.dataset.tid;
       expandedThemeIds[toggleTid] = !expandedThemeIds[toggleTid];
-      renderThemeWorkbench(CACHE[currentDay]);
+      renderThemeWorkbench(activeThemeView());
       return;
     }
     var themeConcept = ev.target.closest ? ev.target.closest('.theme-concept-row') : null;
@@ -478,7 +631,7 @@
     var themeNav = ev.target.closest ? ev.target.closest('.theme-nav-row') : null;
     if (themeNav) {
       selectedThemeId = themeNav.dataset.tid;
-      renderThemeWorkbench(CACHE[currentDay]);
+      renderThemeWorkbench(activeThemeView());
       return;
     }
     var sectorRank = ev.target.closest ? ev.target.closest('.sector-rank-row') : null;
@@ -494,8 +647,15 @@
     if (!ev.target.closest || !ev.target.closest('#popup')) $('popup').style.display = 'none';
   });
   document.addEventListener('input', function (ev) {
-    if (ev.target && ev.target.id === 'themeSearch') renderThemeWorkbench(CACHE[currentDay]);
+    if (ev.target && ev.target.id === 'themeSearch') renderThemeWorkbench(activeThemeView());
     if (ev.target && ev.target.id === 'sectorSearch') renderSectorWorkbench(CACHE[currentDay]);
+  });
+  document.addEventListener('change', function (ev) {
+    if (!ev.target || ev.target.id !== 'themeDateSel') return;
+    var date = ev.target.value;
+    if (themeRealtime) stopThemeRealtime(false);
+    $('dateSel').value = date;
+    loadDay(date);
   });
   document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') $('popup').style.display = 'none'; });
 

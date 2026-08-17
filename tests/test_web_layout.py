@@ -47,3 +47,13 @@ def test_concept_click_has_right_table_anchor_and_popup_is_viewport_adaptive():
     assert "renderDetail(sid, pop" in js
     assert "window.visualViewport" in js
     assert "maxHeight" in js
+
+
+def test_theme_has_archive_date_selector_and_realtime_toggle():
+    js = (WEB / "assets" / "app.js").read_text(encoding="utf-8")
+    css = (WEB / "assets" / "app.css").read_text(encoding="utf-8")
+    for marker in ("themeDateSel", "themeRealtimeToggle", "api/intraday/latest",
+                   "themeRealtimeTimer", "今日实时", "历史收盘"):
+        assert marker in js
+    assert ".theme-mode-controls" in css
+    assert ".theme-realtime-toggle" in css

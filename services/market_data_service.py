@@ -90,24 +90,71 @@ def history_for_stock(sid):
 
 
 def intraday_latest():
-    """最新 intraday 目录 snapshots.ndjson 末行（轻量实时快照）。"""
+    """最新盘中快照 + 同日涨停池/模型命中/事件，供工作台轻量轮询。"""
     dirs = sorted(glob.glob(_path("intraday", "*")), reverse=True)
     if not dirs:
-        return {}
+        return {"available": False, "data_date": None, "stocks": [], "limitup": [],
+                "model_hits": [], "events": []}
+    date_str = os.path.basename(dirs[0])
     ndjson = os.path.join(dirs[0], "snapshots.ndjson")
     if not os.path.exists(ndjson):
-        return {}
+        return {"available": False, "data_date": date_str, "stocks": [], "limitup": [],
+                "model_hits": [], "events": []}
     last = ""
     with open(ndjson, encoding="utf-8") as fh:
         for line in fh:
             if line.strip():
                 last = line
     if not last:
-        return {}
+        return {"available": False, "data_date": date_str, "stocks": [], "limitup": [],
+                "model_hits": [], "events": []}
     try:
-        return json.loads(last)
+        snapshot = json.loads(last)
     except json.JSONDecodeError:
-        return {}
+        return {"available": False, "data_date": date_str, "stocks": [], "limitup": [],
+                "model_hits": [], "events": []}
+
+    pool_doc = load_json("facts", date_str, "pool.json") or {}
+    pools = pool_doc.get("pools") or {}
+    limitup_pool = pools.get("limitup") or {}
+    alert_pool = pools.get("alert") or {}
+    reasons = load_json("facts", date_str, "limitup.json") or {}
+    event_doc = load_json("facts", date_str, "events.json") or {}
+    events = sorted(event_doc.get("events") or [], key=lambda e: e.get("ts", ""), reverse=True)[:200]
+    instruments = load_json("normalized", "stocks.json") or {}
+
+    limitups = []
+    for sid, pool_entry in limitup_pool.items():
+        item = {"stock_id": sid, "name": (instruments.get(sid) or {}).get("name", sid)}
+        item.update(reasons.get(sid) or {})
+        for key in ("entry_time", "score", "status"):
+            if key in (pool_entry or {}):
+                item[key] = pool_entry[key]
+        limitups.append(item)
+
+    model_hits = []
+    seen = set()
+    for sid, entry in alert_pool.items():
+        models = entry.get("model_hit") or []
+        if not models:
+            continue
+        model_hits.append({"stock_id": sid, "name": (instruments.get(sid) or {}).get("name", sid),
+                           "model_hit": models, "score": entry.get("score"),
+                           "ts": entry.get("entry_time", "")})
+        seen.add(sid)
+    for event in events:
+        sid = event.get("stock_id")
+        if event.get("type") != "signal_hit" or not sid or sid in seen:
+            continue
+        model_hits.append({"stock_id": sid, "name": (instruments.get(sid) or {}).get("name", sid),
+                           "model_hit": event.get("models") or [], "score": event.get("score"),
+                           "ts": event.get("ts", "")})
+        seen.add(sid)
+
+    result = dict(snapshot)
+    result.update({"available": True, "data_date": date_str, "limitup": limitups,
+                   "model_hits": model_hits, "events": events})
+    return result
 
 
 # ---------------- HTTP 服务 ----------------
@@ -159,7 +206,8 @@ def handle_api(path, query):
         return ok({"stock": sid, "timeline": history_for_stock(sid)}, None, "engine"), 200
 
     if path == "/api/intraday/latest":
-        return ok(intraday_latest(), None, "intraday"), 200
+        data = intraday_latest()
+        return ok(data, data.get("data_date"), "intraday"), 200
 
     if path == "/api/agent/summary":
         # V0.4 Agent 聚合：一次返回当天信号摘要（涨停/策略/预警/事件/板块/资金流/个股名）
