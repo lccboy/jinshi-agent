@@ -16,21 +16,41 @@ from .daily_runner import DailyRunStore, is_trading_day
 def due_stages(now, statuses):
     """返回当前应启动且尚未成功的阶段；盘中采集绝不在收盘后补跑。"""
     minute = now.hour * 60 + now.minute
+    def state(stage):
+        value = statuses.get(stage)
+        return value if isinstance(value, dict) else {"status": value, "attempt_count": 0}
+
+    def eligible(stage):
+        value = state(stage)
+        if value.get("status") == "success" or value.get("attempt_count", 0) >= 3:
+            return False
+        updated = value.get("updated_at")
+        if value.get("status") == "failed" and updated:
+            then = dt.datetime.fromisoformat(updated)
+            compare_now = now if now.tzinfo else now.replace(tzinfo=then.tzinfo)
+            if (compare_now - then).total_seconds() < 300:
+                return False
+        return True
+
     due = []
-    if 9 * 60 <= minute and statuses.get("premarket") != "success":
+    if 9 * 60 <= minute and eligible("premarket"):
         due.append("premarket")
     if (9 * 60 + 14 <= minute <= 15 * 60 and
-            statuses.get("premarket") == "success" and statuses.get("intraday") != "success"):
+            state("premarket").get("status") == "success" and eligible("intraday")):
         due.append("intraday")
-    if minute >= 15 * 60 + 10 and statuses.get("postmarket") != "success":
+    if minute >= 15 * 60 + 10 and eligible("postmarket"):
         due.append("postmarket")
-    if minute >= 15 * 60 + 20 and statuses.get("archive") != "success":
+    if (minute >= 15 * 60 + 30 and state("postmarket").get("status") == "success" and
+            eligible("archive")):
         due.append("archive")
     return due
 
 
 def day_statuses(store, date_str):
-    return {stage: store.latest_status(date_str, stage)
+    day = store.load().get("runs", {}).get(date_str, {})
+    return {stage: {"status": day.get(stage, {}).get("status"),
+                    "updated_at": day.get(stage, {}).get("updated_at"),
+                    "attempt_count": len(day.get(stage, {}).get("attempts", []))}
             for stage in ("premarket", "intraday", "postmarket", "archive")}
 
 

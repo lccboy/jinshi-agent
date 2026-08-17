@@ -10,7 +10,7 @@ $tasks = @(
     @{ Name = "JinshiDSH-Premarket"; Time = "09:00"; Phase = "premarket"; Limit = (New-TimeSpan -Hours 1) },
     @{ Name = "JinshiDSH-Intraday"; Time = "09:14"; Phase = "intraday"; Limit = (New-TimeSpan -Hours 8) },
     @{ Name = "JinshiDSH-Postmarket"; Time = "15:10"; Phase = "postmarket"; Limit = (New-TimeSpan -Hours 3) },
-    @{ Name = "JinshiDSH-Archive"; Time = "15:20"; Phase = "archive"; Limit = (New-TimeSpan -Hours 1) }
+    @{ Name = "JinshiDSH-Archive"; Time = "15:30"; Phase = "archive"; Limit = (New-TimeSpan -Hours 2) }
 )
 
 if ($Uninstall) {

@@ -86,7 +86,8 @@ def run_command(command, cwd=None, timeout=3600, dry_run=False):
     """执行阶段子命令并返回可序列化结果；非零退出触发阶段失败。"""
     if dry_run:
         return {"command": command, "dry_run": True}
-    proc = subprocess.run(command, cwd=cwd, text=True, capture_output=True, timeout=timeout)
+    proc = subprocess.run(command, cwd=cwd, text=True, encoding="utf-8", errors="replace",
+                          capture_output=True, timeout=timeout)
     detail = {"command": command, "returncode": proc.returncode,
               "stdout": proc.stdout[-4000:], "stderr": proc.stderr[-4000:]}
     if proc.returncode:
@@ -113,6 +114,7 @@ def load_runtime(path="config/runtime.json"):
     data.setdefault("data_root", "data")
     data.setdefault("vipdoc", "")
     data.setdefault("kpl_output", r"H:\projects\kpl\output")
+    data.setdefault("kpl_collector", r"H:\projects\kpl\collect_live.py")
     return data
 
 
@@ -157,10 +159,14 @@ def build_stage_commands(date_str, runtime):
              "--kline", os.path.join(data, "kline"), "--out", data, "--config", "config/strategy.json"],
         ],
         "archive": [
+            [py, "-m", "services.collector.close_archive", "--date", date_str,
+             "--collector", runtime.get("kpl_collector", r"H:\projects\kpl\collect_live.py"),
+             "--kpl-output", runtime.get("kpl_output", r"H:\projects\kpl\output"),
+             "--data", data],
             [py, "-m", "services.collector.archive_job", "--date", date_str,
              "--facts", os.path.join(data, "facts"), "--web", os.path.join(data, "web"),
              "--intraday", os.path.join(data, "intraday"), "--archive", os.path.join(data, "archive"),
-             "--verify", "--stage-only"],
+             "--verify", "--stage-only", "--kpl-output", runtime.get("kpl_output", r"H:\projects\kpl\output")],
             [py, "-m", "services.collector.quality_gate", "--date", date_str, "--data", data, "--promote"],
         ],
     }

@@ -12,7 +12,7 @@
 | 字典 | `data/normalized/themes.json`、`sectors.json` | 题材定义（含子概念）、板块/子板块定义（含层级） | 只更新 |
 | **日K底库** | `data/kline/` | 本地通达信日线（前复权），策略与回测的时间序列底库 | 每日盘后同步，只追加 |
 | 按日事实 | `data/facts/<日期>/` | 行情、涨停原因、连板梯队、市场统计、指数、情绪、归属+地位、策略命中、**资金流、领涨原因**、事件流、预警池 | **只增不改**，按日追加 |
-| 盘中实时 | `data/intraday/<日期>/` | 板块强度/题材排序/指数/连板/异动/个股实时快照 | 只增，15:20 归档 |
+| 盘中实时 | `data/intraday/<日期>/` | 板块强度/题材排序/指数/连板/异动/个股实时快照 | 只增，15:30 归档 |
 | 归档 | `data/archive/<日期>/` | intraday 原始快照归档 | 只增 |
 | 运行清单 | `data/runs/strategy_runs.json` | 策略每次运行的版本/参数/universe | 只增 |
 
@@ -160,7 +160,7 @@ data/
   "themes":  {
     "source": "theme_repo",
     "source_updated_at": "2026-08-14T11:40:52+08:00",
-    "collected_at": "2026-08-14T15:20:00+08:00",
+    "collected_at": "2026-08-14T15:30:00+08:00",
     "source_hash": "<sha256>",
     "freshness": "fresh",
     "count": 248
@@ -245,7 +245,7 @@ data/
 
 - `boards` = **连板**（首板/2连板/3天2板…），每日不同 → 属于事实
 - `primary`/`sourceCount`/`sources` 三个字段**必须保留**——前端展示"主因 + N 源"标签，Agent 分析时可对比多源表述
-- 盘中快照阶段只有 `kpl` 单源（`primary=kpl`、`sourceCount=1`）；15:20 归档时由盘后 enrichment 覆盖为 4 源版本
+- 盘中快照阶段只有 `kpl` 单源（`primary=kpl`、`sourceCount=1`）；15:30 归档时由盘后 enrichment 覆盖为 4 源版本
 - `concepts` 拆成数组便于与题材字典对齐；涨停原因原文保留在 `detail`
 - `first_time` 涨停时间、`seal_amount` 封单额来自 `get_sector_ranking` 个股明细
 - `detected_by`：涨停由谁确认（`kpl`/`tencent`/`both`）——腾讯实时检测独立于 KPL，KPL 缺失时兜底，双源交叉验证（见 §10）
@@ -426,8 +426,8 @@ data/
   "sources": ["kpl", "tdx", "题材库", "jygs", "ths", "xgb"],
   "market_status": "close",
   "adjusted": "qfq",
-  "fetched_at": "2026-08-14 15:20:01",
-  "archived_at": "2026-08-14 15:20:30"
+  "fetched_at": "2026-08-14 15:30:01",
+  "archived_at": "2026-08-14 15:30:30"
 }
 ```
 
@@ -547,7 +547,7 @@ data/
 | 09:15:00–09:30:00（竞价） | **每 3 秒** | 板块强度、题材排序、指数、连板梯队、竞价异动/涨停池个股 |
 | 09:30:00–10:30:00（开盘） | **每 3 秒** | 同上 + 涨停池/强势板块成分/自选候选个股 |
 | 10:31:00–15:00:00 | **每 30 秒** | 板块强度、题材排序、指数、连板梯队、个股（建议全量） |
-| 15:20:00 | **归档** | 生成当日 facts，intraday 目录移入 archive |
+| 15:30:00 | **全量归档** | 冻结题材库与板块强度，生成当日 facts，intraday 目录移入 archive |
 
 ### 5.2 快照格式（snapshots.ndjson，每行一个快照）
 
@@ -568,12 +568,12 @@ data/
 
 ### 5.3 采集器行为与数据量说明
 
-- 交易日 09:14 由 Windows 计划任务启动，15:05 停止高频采集，15:20 执行归档
+- 交易日 09:14 由 Windows 计划任务启动，15:05 停止高频采集，15:30 执行题材库与板块强度全量归档
 - **KPL 段 3s 节奏无法覆盖全市场**（全量一轮约 19 秒）：KPL 3s 阶段只采子集——涨停池、强势板块成分、自选/候选池（建议 ≤500 只）；30s 阶段 KPL 可全量。**腾讯段 3s 即全市场**（见 §5.2、§10）
 - 全天快照数 ≈ 300（3s×75min）+ 540（30s×4.5h）≈ **840 行/日**；`snapshots.ndjson` 单日约几十 MB，可接受；如需压缩后续可启用 gzip
-- 盘中涨停原因只有 `kpl` 单源（`primary=kpl`、`sourceCount=1`）；盘后由 `collect_reasons_multi.py` 补充 `jygs`/`ths`/`xgb` 三源，15:20 归档时写入 facts 的 `limitup.json`（见 §4.2）
+- 盘中涨停原因只有 `kpl` 单源（`primary=kpl`、`sourceCount=1`）；盘后由 `collect_reasons_multi.py` 补充 `jygs`/`ths`/`xgb` 三源，15:30 归档时写入 facts 的 `limitup.json`（见 §4.2）
 
-## 6. 归档流程（每日 15:20）
+## 6. 归档流程（交易日 15:30）
 
 1. 停止采集，读取当日最后快照
 2. 生成当日事实：`quotes.json`（收盘值，优先 TDX 收盘，缺失补 KPL 末值）、`limitup.json`（盘后多源合并：`primary` 裁决 + `sources` 保留 4 源原文）、`ladder.json`、`sectors.json`（含爆发原因）、`market.json`、`index.json`、`sentiment.json`、`abnormal.json`、`money_flow.json`、`leading_reason.json`、`membership.json`（重算地位/排名/归属）、`strategy.json`（若当日有模型运行）
@@ -729,11 +729,11 @@ data/web/
 └── 所有 .json 的 .gz         # 归档时 gzip 预压缩（nginx gzip_static 直出）
 ```
 
-`day_*.json` 聚合规则（15:20 归档时生成）：
+`day_*.json` 聚合规则（15:30 归档时生成）：
 - **字段裁剪**：quotes 63 字段裁到 ~12（价格/涨跌/量比/换手/市值/主力净额）；涨停原因 `detail` 长文移入 `.detail.json`（弹窗按需）
 - **预排序**：板块按强度/资金流降序、涨停按连板+评分降序——前端零排序直接渲染
 - **预计算**：四维共振星级/confirm、买点分、止损位归档时算好，页面不重算
-- **题材冻结**：`theme_limitup` 保存题材→当日涨停股，`theme_concept_limitup` 保存主概念/细分概念→当日涨停股；随 15:20 日视图归档后不可变，历史日期只读取该日口径
+- **题材冻结**：`theme_limitup` 保存题材→当日涨停股，`theme_concept_limitup` 保存主概念/细分概念→当日涨停股；随 15:30 日视图归档后不可变，历史日期只读取该日口径
 - **板块历史**：`index.json.sector_trend` 保存最近 10 个交易日的板块前十；`day_*.sector.json` 按板块/子板块 ID 保存参考页数值列，页面按日懒加载
 - 表格列用数组/精简对象，避免冗余嵌套
 

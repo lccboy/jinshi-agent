@@ -196,7 +196,7 @@ http://服务器IP:8088/DSH/
 powershell -ExecutionPolicy Bypass -File .\deploy\install-tasks.ps1
 ```
 
-默认工作日执行：09:00 `premarket`、09:14 `intraday`、15:10 `postmarket`、15:20 `archive`。每阶段由 `daily_runner.py` 幂等记录；成功阶段不会重复执行，失败阶段下次调用自动重试，任务本身最多重启三次。
+默认工作日执行：09:00 `premarket`、09:14 `intraday`、15:10 `postmarket`、15:30 `archive`。归档先冻结开盘啦全量板块/子板块/成分股与涨停原因，再同时生成题材库、板块强度日视图。每阶段由 `daily_runner.py` 幂等记录；成功阶段不会重复执行，失败阶段每 5 分钟重试、最多三次。
 
 检查计划任务、最近运行、质量门禁和服务健康：
 

@@ -2,7 +2,7 @@ import datetime as dt
 import json
 
 from services.collector.daily_runner import (
-    DailyRunStore, build_stage_commands, is_trading_day, run_stage, write_active_universe,
+    DailyRunStore, build_stage_commands, is_trading_day, run_command, run_stage, write_active_universe,
 )
 
 
@@ -79,7 +79,27 @@ def test_build_stage_commands_contains_real_pipeline(tmp_path):
     assert any("services.collector.master_collector" in cmd for cmd in commands["premarket"] for part in cmd)
     assert any("--realtime" in cmd for cmd in commands["intraday"])
     assert any("services.collector.strategy_engine" in cmd for cmd in commands["postmarket"] for part in cmd)
+    assert "services.collector.close_archive" in commands["archive"][0]
+    assert "--kpl-output" in commands["archive"][1]
     assert any("--stage-only" in cmd for cmd in commands["archive"])
     assert any("--promote" in cmd for cmd in commands["archive"])
     master = commands["premarket"][0]
     assert master[master.index("--date") + 1] == "2026-08-14"
+
+
+def test_run_command_decodes_collector_output_as_utf8(monkeypatch):
+    captured = {}
+
+    class Result:
+        returncode = 0
+        stdout = "全量归档完成"
+        stderr = ""
+
+    def fake_run(*args, **kwargs):
+        captured.update(kwargs)
+        return Result()
+
+    monkeypatch.setattr("services.collector.daily_runner.subprocess.run", fake_run)
+    result = run_command(["python", "collector.py"])
+    assert captured["encoding"] == "utf-8" and captured["errors"] == "replace"
+    assert "全量归档" in result["stdout"]

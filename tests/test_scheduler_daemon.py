@@ -16,9 +16,23 @@ def test_due_stages_obey_market_windows():
 
 def test_due_stages_retry_failed_and_skip_success():
     statuses = {"premarket": "success", "intraday": "success", "postmarket": "failed"}
-    assert due_stages(at("15:21"), statuses) == ["postmarket", "archive"]
+    assert due_stages(at("15:29"), statuses) == ["postmarket"]
+    assert due_stages(at("15:30"), statuses) == ["postmarket"]
     statuses.update(postmarket="success", archive="success")
     assert due_stages(at("15:30"), statuses) == []
+
+
+def test_archive_starts_at_1530_after_postmarket_and_retries_are_bounded():
+    assert due_stages(at("15:29"), {"postmarket": "success"}) == ["premarket"]
+    states = {"premarket": "success", "postmarket": "success"}
+    assert due_stages(at("15:30"), states) == ["archive"]
+    states["archive"] = {"status": "failed", "attempt_count": 1,
+                         "updated_at": "2026-08-17T15:29:00+08:00"}
+    assert due_stages(at("15:30"), states) == []
+    states["archive"]["updated_at"] = "2026-08-17T15:24:00+08:00"
+    assert due_stages(at("15:30"), states) == ["archive"]
+    states["archive"]["attempt_count"] = 3
+    assert due_stages(at("16:00"), states) == []
 
 
 def test_intraday_waits_for_premarket():

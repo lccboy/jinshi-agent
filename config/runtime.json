@@ -4,4 +4,5 @@
   "nginx_dir": "C:\\nginx",
   "vipdoc": "H:\\MPV1.240322\\Tdx MPV V1.24++\\vipdoc",
   "kpl_output": "H:\\projects\\kpl\\output"
+  ,"kpl_collector": "H:\\projects\\kpl\\collect_live.py"
 }

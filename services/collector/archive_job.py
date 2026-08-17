@@ -2,7 +2,7 @@
 """归档 + Web 视图层（V0.1a 任务 6）
 
 依据 `docs/DATA_MODEL.md` §13：
-- 15:20 归档编排：读当日 facts → 生成 Web 视图层（字段裁剪 + 预排序 + 四维确认 + gzip 预压缩）→ intraday 移入 archive
+- 15:30 归档编排：读当日 facts → 生成 Web 视图层（字段裁剪 + 预排序 + 四维确认 + gzip 预压缩）→ intraday 移入 archive
 - `data/web/day_<date>.json`（页面唯一数据源）+ `.gz`（nginx gzip_static 直出）+ `day_latest.json` + `index.json`（日期清单）
 """
 import argparse
@@ -374,6 +374,8 @@ def read_facts(date_str, facts_dir):
             facts[name] = doc.get("indexes", doc)
         elif name == "events":
             facts[name] = doc.get("events", [])   # 事件流为列表
+        elif name == "limitup":
+            facts[name] = doc.get("limitup", doc)
         else:
             facts[name] = doc
     return facts
