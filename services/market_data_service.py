@@ -129,6 +129,15 @@ def recent_limitup_reasons(date_str, stock_ids):
     return found
 
 
+def attach_sector_reasons(stocks, reasons):
+    """把最近历史涨停原因附加到 KPL 实时成分股；不改变无历史原因的股票。"""
+    for stock in stocks:
+        reason = reasons.get(stock.get("stock_id"))
+        if reason:
+            stock.update(reason)
+    return stocks
+
+
 def intraday_latest():
     """最新盘中快照 + 同日涨停池/模型命中/事件，供工作台轻量轮询。"""
     dirs = sorted(glob.glob(_path("intraday", "*")), reverse=True)
@@ -221,7 +230,10 @@ def sector_realtime(plate_id, sub_id=None):
     except ModuleNotFoundError:  # 直接执行 services/market_data_service.py 时的模块根目录
         from collector.kpl_sector_realtime import fetch_realtime
     data = fetch_realtime(plate_id, sub_id=sub_id)
-    data["data_date"] = datetime.date.today().strftime("%Y-%m-%d")
+    data_date = datetime.date.today().strftime("%Y-%m-%d")
+    reason_ids = [row["stock_id"] for row in data.get("stocks", []) if float(row.get("change") or 0) >= 9.8]
+    attach_sector_reasons(data.get("stocks", []), recent_limitup_reasons(data_date, reason_ids))
+    data["data_date"] = data_date
     return data
 
 

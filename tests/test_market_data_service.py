@@ -183,6 +183,18 @@ def test_intraday_latest(api):
     assert data["events"][0]["type"] == "signal_hit"
 
 
+def test_attach_sector_reasons_keeps_history_metadata():
+    from services.market_data_service import attach_sector_reasons
+    stocks = [{"stock_id": "SZ300487", "change": 10.01}, {"stock_id": "SH600000", "change": 1.0}]
+    reasons = {"SZ300487": {"reason": "存储涨价", "reason_date": "2026-08-14",
+                              "reason_is_history": True, "primary": "kpl", "sourceCount": 2,
+                              "sources": {"kpl": {"reason": "存储涨价"}}}}
+    attach_sector_reasons(stocks, reasons)
+    assert stocks[0]["reason"] == "存储涨价"
+    assert stocks[0]["reason_date"] == "2026-08-14"
+    assert "reason" not in stocks[1]
+
+
 def test_agent_summary(api):
     # V0.4 Agent 聚合端点：一次返回当天信号摘要（涨停/策略/预警/事件/板块/资金流）
     r = api.get("/agent/summary?date=2026-08-14")

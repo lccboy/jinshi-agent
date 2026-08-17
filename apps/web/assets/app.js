@@ -22,6 +22,7 @@
   var sectorFilter = 'all';
   var sectorRealtime = false;
   var sectorRealtimeTimer = null;
+  var sectorForceHistory = false;
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -361,6 +362,11 @@
     return y + '-' + m + '-' + day;
   }
 
+  function isMarketSession() {
+    var now = new Date(), day = now.getDay(), minutes = now.getHours() * 60 + now.getMinutes();
+    return day >= 1 && day <= 5 && minutes >= 9 * 60 + 15 && minutes <= 15 * 60 + 20;
+  }
+
   function buildRealtimeThemeView(payload) {
     var base = CACHE[themeArchiveDay || currentDay] || {};
     var view = Object.assign({}, base);
@@ -471,15 +477,20 @@
 
   /* 板块强度：参考 KPL 左侧排行 + 右侧详情格局。 */
   function vSector(view) {
-    Promise.all([loadLib('sectors.json'), loadExpandLibs()]).then(function () { renderSectorWorkbench(view); });
+    sectorRealtime = isMarketSession() && !sectorForceHistory;
+    Promise.all([loadLib('sectors.json'), loadExpandLibs()]).then(function () {
+      renderSectorWorkbench(view);
+      if (sectorRealtime) refreshSectorRealtime();
+    });
     var trend = (SECTOR_INDEX.sector_trend || []).map(function (day) {
       return '<div class="sector-trend-day"><b>' + esc(day.date.slice(5)) + '</b>' + (day.top || []).map(function (s) {
         return '<span class="sector-trend-cell' + (s.id === selectedSectorId ? ' selected' : '') + '" data-trend-sid="' + esc(s.id) + '" title="强度 ' + esc(s.strength) + ' · 涨停 ' + (s.limit_up_count || 0) + '">' + esc(s.rank) + '. ' + esc(s.name) + ' <i>涨停' + (s.limit_up_count || 0) + '</i></span>';
       }).join('') + '</div>';
     }).join('');
+    var sectorDate = sectorRealtime ? localToday() + ' · 实时' : currentDay + ' · 归档';
     return '<div class="sector-shell"><details class="sector-trend"><summary>板块强度排序变化 <small>近 10 个交易日</small></summary><div class="sector-trend-grid">' + trend + '</div></details>' +
-      '<div class="sector-workbench"><aside class="sector-sidebar"><div class="sector-side-head"><div><span>板块强度排行</span><small>' + esc(currentDay) + '</small></div>' +
-      '<div class="sector-date"><b>◀</b><span>' + esc(currentDay) + '</span><b>▶</b></div></div>' +
+      '<div class="sector-workbench"><aside class="sector-sidebar"><div class="sector-side-head"><div><span>板块强度排行</span><small>' + esc(sectorDate) + '</small></div>' +
+      '<div class="sector-date"><b>◀</b><span>' + esc(sectorDate) + '</span><b>▶</b></div></div>' +
       '<div class="panel-search"><input id="sectorSearch" placeholder="搜索板块…"></div><div id="sectorList" class="sector-rank-list"></div></aside>' +
       '<section class="sector-detail"><div id="sectorDetail"></div></section></div></div>';
   }
@@ -504,7 +515,7 @@
     var subs = s.sub_sectors || [];
     var subHtml = '<button class="sector-sub-chip' + (!selectedSubSectorId ? ' active' : '') + '" data-subsid="">全部</button>' + subs.map(function (sub) { return '<button class="sector-sub-chip' + (selectedSubSectorId === sub.id ? ' active' : '') + '" data-subsid="' + esc(sub.id) + '">' + esc(sub.name) + ' ' + esc(sub.strength) + '</button>'; }).join('');
     $('sectorDetail').innerHTML = '<div class="sector-detail-head"><h1>' + esc(s.name || sid) + ' <small>(' + esc(sid) + ')</small></h1>' +
-      '<p>强度 ' + esc(s.strength || 0) + ' · 涨跌 <span class="' + cls(s.change) + '">' + fmtPct(s.change) + '</span> · 主力净额 ' + fmtMoney(s.mainNet) + ' · 成交额 ' + esc(s.volume || 0) + '亿 · 市值 ' + esc(s.marketCap || 0) + '亿 <button class="sector-live-btn' + (sectorRealtime ? ' active' : '') + '">' + (sectorRealtime ? '● 开盘啦实时' : '○ 切换实时') + '</button><small id="sectorLiveTime"></small></p></div>' +
+      '<p>强度 ' + esc(s.strength || 0) + ' · 涨跌 <span class="' + cls(s.change) + '">' + fmtPct(s.change) + '</span> · 主力净额 ' + fmtMoney(s.mainNet) + ' · 成交额 ' + esc(s.volume || 0) + '亿 · 市值 ' + esc(s.marketCap || 0) + '亿 ' + (sectorRealtime ? '<span class="sector-live-state">● 开盘啦实时</span>' : '<span class="muted">盘后归档</span>') + '<small id="sectorLiveTime"></small></p></div>' +
       '<div class="sector-chart-empty"><div class="chart-legend"><span>■ 成交额</span><span>━ 价格</span></div><span>当前日视图暂无板块分时序列</span></div>' +
       '<div class="sector-subbar"><label>子板块</label>' + (subHtml || '<span class="muted">（无子板块）</span>') + '</div>' +
       '<div class="sector-filterbar"><button data-sector-filter="all">全部</button><button data-sector-filter="zt">涨停</button><button data-sector-filter="up6">≥6%</button><button data-sector-filter="up0">0~6%</button><button data-sector-filter="dn">&lt;0%</button></div>' +
@@ -534,7 +545,10 @@
   function renderSectorStockTable(rows) {
     var host = $('sectorStockTable'); if (!host) return;
     var filtered = rows.filter(function (r) { var c = Number(r.change) || 0; return sectorFilter === 'all' || (sectorFilter === 'zt' && c >= 9.8) || (sectorFilter === 'up6' && c >= 6 && c < 9.8) || (sectorFilter === 'up0' && c >= 0 && c < 6) || (sectorFilter === 'dn' && c < 0); });
-    var body = filtered.map(function (r) { return '<tr class="' + ((Number(r.change) || 0) >= 9.8 ? 'row-zt' : '') + '"><td class="l">' + stk(r.stock_id, r.code) + '</td><td class="l">' + esc(r.name) + '</td><td>' + esc(r.position || '-') + '</td><td class="l">' + esc(r.reason || '-') + '</td><td class="' + cls(r.change) + '">' + fmtPct(r.change) + '</td><td>' + esc(r.price || '-') + '</td><td>' + esc(r.turnover || '-') + '%</td><td>' + fmtMoney(r.amount) + '</td><td class="' + cls(r.main_net) + '">' + fmtMoney(r.main_net) + '</td><td>' + esc(r.vol_ratio || '-') + '</td><td>' + esc(r.net_flow_ratio || '-') + '</td><td>' + esc(r.boards || '-') + '</td><td>' + esc(r.pe || '-') + '</td><td>' + fmtMoney(r.circ_market_cap) + '</td></tr>'; }).join('');
+    var body = filtered.map(function (r) {
+      var reason = r.reason ? '<button type="button" class="reason-pop sector-reason" data-sid="' + esc(r.stock_id) + '" title="沿用 ' + esc(r.reason_date || '') + ' 涨停原因">' + esc(r.reason) + (r.reason_date ? ' <small>' + esc(r.reason_date.slice(5)) + '</small>' : '') + '</button>' : '-';
+      return '<tr class="sector-stock-row ' + ((Number(r.change) || 0) >= 9.8 ? 'row-zt' : '') + '" data-tdx-sid="' + esc(r.stock_id) + '"><td class="l">' + esc(r.code) + '</td><td class="l">' + esc(r.name) + '</td><td>' + esc(r.position || '-') + '</td><td class="l">' + reason + '</td><td class="' + cls(r.change) + '">' + fmtPct(r.change) + '</td><td>' + esc(r.price || '-') + '</td><td>' + esc(r.turnover || '-') + '%</td><td>' + fmtMoney(r.amount) + '</td><td class="' + cls(r.main_net) + '">' + fmtMoney(r.main_net) + '</td><td>' + esc(r.vol_ratio || '-') + '</td><td>' + esc(r.net_flow_ratio || '-') + '</td><td>' + esc(r.boards || '-') + '</td><td>' + esc(r.pe || '-') + '</td><td>' + fmtMoney(r.circ_market_cap) + '</td></tr>';
+    }).join('');
     host.innerHTML = '<div class="tblwrap"><table><thead><tr><th class="l">代码</th><th class="l">名称</th><th>地位</th><th class="l">涨停原因</th><th>涨跌幅</th><th>现价</th><th>换手率</th><th>成交额</th><th>主力净额</th><th>量比</th><th>净流占比</th><th>连板</th><th>市盈率</th><th>流通市值</th></tr></thead><tbody>' + (body || '<tr><td colspan="14" class="muted">暂无成分股</td></tr>') + '</tbody></table></div>';
     document.querySelectorAll('[data-sector-filter]').forEach(function (b) { b.classList.toggle('active', b.dataset.sectorFilter === sectorFilter); });
   }
@@ -557,6 +571,14 @@
           current.stock_count = data.stock_count;
         }
       }
+      var liveDetail = { date: data.data_date || localToday(), limitup: {} };
+      (data.stocks || []).forEach(function (stock) {
+        if (!stock.reason) return;
+        liveDetail.limitup[stock.stock_id] = { reason: stock.reason, detail: stock.detail || '',
+          primary: stock.primary || 'kpl', sourceCount: stock.sourceCount || 1, sources: stock.sources || {},
+          reason_date: stock.reason_date || '', reason_is_history: !!stock.reason_is_history };
+      });
+      DETAIL_CACHE[liveDetail.date] = liveDetail;
       renderSectorWorkbench(view);
       renderSectorStockTable(data.stocks || []);
       var stamp = $('sectorLiveTime');
@@ -611,7 +633,7 @@
     pop.dataset.anchorX = x;
     pop.dataset.anchorY = y;
     place(pop, x, y);
-    var detailDay = themeRealtime ? localToday() : currentDay;
+    var detailDay = (themeRealtime || sectorRealtime) ? localToday() : currentDay;
     if (DETAIL_CACHE[detailDay]) { renderDetail(sid, pop, x, y, detailDay); return; }
     fetchJSON(dayFile(detailDay).replace('.json', '.detail.json')).then(function (d) {
       DETAIL_CACHE[detailDay] = d;
@@ -629,7 +651,10 @@
     var e = (d.limitup || {})[sid];
     if (!e) { pop.innerHTML = '<div class="pp-head"><span>无详情</span><span class="pp-close" onclick="document.getElementById(\'popup\').style.display=\'none\'">×</span></div>'; return; }
     var sources = e.sources || {};
-    var html = '<div class="pp-head"><span>' + esc(sid) + ' · 涨停原因（' + (e.sourceCount || 1) + ' 源）</span><span class="pp-close" onclick="document.getElementById(\'popup\').style.display=\'none\'">×</span></div>';
+    var html = '<div class="pp-head"><span>' + esc(sid) + ' · 涨停原因（' + (e.sourceCount || 1) + ' 源）' + (e.reason_date ? ' · ' + esc(e.reason_date) : '') + '</span><span class="pp-close" onclick="document.getElementById(\'popup\').style.display=\'none\'">×</span></div>';
+    if (!Object.keys(sources).length && e.reason) {
+      html += '<div class="pp-source"><div class="pp-src-head"><span class="pp-dot" style="background:#e24b4a"></span>开盘啦</div><div>' + esc(e.reason) + '</div>' + (e.detail ? '<div class="pp-detail">' + esc(e.detail) + '</div>' : '') + '</div>';
+    }
     SRC_ORDER.forEach(function (key) {
       var src = sources[key];
       if (!src) return;
@@ -676,6 +701,8 @@
       document.querySelectorAll('.tab').forEach(function (t) { t.classList.remove('active'); });
       tab.classList.add('active');
       if (tab.dataset.view !== 'theme' && themeRealtime) stopThemeRealtime(false);
+      if (tab.dataset.view !== 'sector') { sectorRealtime = false; window.clearTimeout(sectorRealtimeTimer); }
+      if (tab.dataset.view === 'sector') sectorForceHistory = false;
       currentView = tab.dataset.view;
       if (history.replaceState) history.replaceState(null, '', '#' + currentView);
       render();
@@ -683,6 +710,7 @@
   });
   $('dateSel').addEventListener('change', function () {
     if (themeRealtime) stopThemeRealtime(false);
+    if (currentView === 'sector') { sectorForceHistory = true; sectorRealtime = false; window.clearTimeout(sectorRealtimeTimer); }
     loadDay(this.value);
   });
   document.addEventListener('click', function (ev) {
@@ -739,17 +767,15 @@
       if (sectorRealtime) refreshSectorRealtime(); else loadSectorStocks(CACHE[currentDay], selectedSectorId);
       return;
     }
-    var sectorLiveBtn = ev.target.closest ? ev.target.closest('.sector-live-btn') : null;
-    if (sectorLiveBtn) {
-      sectorRealtime = !sectorRealtime;
-      renderSectorDetail(CACHE[currentDay], selectedSectorId);
-      if (sectorRealtime) refreshSectorRealtime(); else window.clearTimeout(sectorRealtimeTimer);
-      return;
-    }
     var secRow = ev.target.closest ? ev.target.closest('.sec-row') : null;
     if (secRow) { toggleSectorExpand(secRow); return; }
     var btn = ev.target.closest ? ev.target.closest('.reason-pop') : null;
     if (btn) { ev.stopPropagation(); showPopup(btn.dataset.sid, ev.clientX, ev.clientY); return; }
+    var stockRow = ev.target.closest ? ev.target.closest('.sector-stock-row') : null;
+    if (stockRow && stockRow.dataset.tdxSid) {
+      window.location.href = 'http://www.treeid/code_' + encodeURIComponent(code6(stockRow.dataset.tdxSid));
+      return;
+    }
     if (!ev.target.closest || !ev.target.closest('#popup')) $('popup').style.display = 'none';
   });
   document.addEventListener('input', function (ev) {
