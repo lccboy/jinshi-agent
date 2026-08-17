@@ -36,3 +36,14 @@ def test_theme_sidebar_expands_daily_concepts_and_cards_only_limitups():
     assert "theme-concept-row" in js
     assert "该题材当日暂无涨停股" in js
     assert "sourceCount > 1" in js
+
+
+def test_concept_click_has_right_table_anchor_and_popup_is_viewport_adaptive():
+    js = (WEB / "assets" / "app.js").read_text(encoding="utf-8")
+    css = (WEB / "assets" / "app.css").read_text(encoding="utf-8")
+    for marker in ("data-concept-key", "locateThemeConcept", "scrollTo", "concept-target"):
+        assert marker in js or marker in css
+    assert "place(pop" in js
+    assert "renderDetail(sid, pop" in js
+    assert "window.visualViewport" in js
+    assert "maxHeight" in js

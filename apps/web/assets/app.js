@@ -10,6 +10,7 @@
   var selectedThemeId = null;
   var selectedSectorId = null;
   var expandedThemeIds = {};
+  var selectedThemeConceptKey = null;
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -200,7 +201,8 @@
       var t = themes[tid] || {};
       var concepts = (view.theme_concept_limitup || {})[tid] || [];
       var children = expandedThemeIds[tid] ? '<div class="theme-concept-children">' + concepts.map(function (item) {
-        return '<div class="theme-concept-row level-' + item.level + '" data-tid="' + esc(tid) + '">' +
+        var key = themeConceptKey(item.level, item.parent || '', item.name);
+        return '<div class="theme-concept-row level-' + item.level + (key === selectedThemeConceptKey ? ' selected' : '') + '" data-tid="' + esc(tid) + '" data-concept-key="' + key + '">' +
           '<span class="concept-level">' + (item.level === 1 ? '主' : '细') + '</span><span class="concept-name">' +
           esc(item.level === 2 ? (item.parent + ' / ' + item.name) : item.name) + '</span><b>' + item.stock_ids.length + '</b></div>';
       }).join('') + (concepts.length ? '' : '<div class="theme-concept-empty">当日无涨停概念</div>') + '</div>' : '';
@@ -212,6 +214,36 @@
     $('themeList').innerHTML = ids.length ? html : '<div class="muted" style="padding:12px">无匹配题材</div>';
     renderThemeDetail(view, selectedThemeId);
     renderThemeLive(view);
+  }
+
+  function themeConceptKey(level, parent, name) {
+    return encodeURIComponent([level, parent || '', name || ''].join('|'));
+  }
+
+  function locateThemeConcept(tid, key) {
+    selectedThemeId = tid;
+    selectedThemeConceptKey = key;
+    renderThemeWorkbench(CACHE[currentDay]);
+    window.setTimeout(function () {
+      var row = document.querySelector('.concept-table [data-concept-key="' + key + '"]');
+      if (!row) return;
+      var tableScroll = row.closest('.concept-table-scroll');
+      var detailScroll = row.closest('.detail-content');
+      var section = row.closest('.detail-section');
+      if (detailScroll && section) {
+        var detailRect = detailScroll.getBoundingClientRect();
+        var sectionRect = section.getBoundingClientRect();
+        detailScroll.scrollTo({ top: detailScroll.scrollTop + sectionRect.top - detailRect.top - 8, behavior: 'smooth' });
+      }
+      if (tableScroll) {
+        var tableRect = tableScroll.getBoundingClientRect();
+        var rowRect = row.getBoundingClientRect();
+        var offset = row.tagName === 'TD' ? 8 : Math.max(8, (tableScroll.clientHeight - Math.min(rowRect.height, tableScroll.clientHeight)) / 2);
+        tableScroll.scrollTo({ top: tableScroll.scrollTop + rowRect.top - tableRect.top - offset, behavior: 'smooth' });
+      }
+      row.classList.add('concept-target');
+      window.setTimeout(function () { row.classList.remove('concept-target'); }, 2400);
+    }, 30);
   }
 
   function renderThemeDetail(view, tid) {
@@ -234,11 +266,13 @@
       var l2s = l1.l2 || [];
       if (l2s.length) {
         l2s.forEach(function (l2, index) {
-          treeRows.push('<tr>' + (index === 0 ? '<td class="td-l1" rowspan="' + l2s.length + '"><span class="l1-name">' + esc(l1.n1) + '</span></td>' : '') +
+          var rowKey = themeConceptKey(2, l1.n1, l2.n2);
+          var mainKey = themeConceptKey(1, '', l1.n1);
+          treeRows.push('<tr data-concept-key="' + rowKey + '">' + (index === 0 ? '<td class="td-l1" data-concept-key="' + mainKey + '" rowspan="' + l2s.length + '"><span class="l1-name">' + esc(l1.n1) + '</span></td>' : '') +
             '<td class="td-l2">' + esc(l2.n2) + '</td><td class="td-stocks">' + stockPills(l2.st) + '</td></tr>');
         });
       } else {
-        treeRows.push('<tr><td class="td-l1"><span class="l1-name">' + esc(l1.n1) + '</span></td>' +
+        treeRows.push('<tr data-concept-key="' + themeConceptKey(1, '', l1.n1) + '"><td class="td-l1"><span class="l1-name">' + esc(l1.n1) + '</span></td>' +
           '<td class="td-l2 no-l2">-</td><td class="td-stocks">' + stockPills(l1.st) + '</td></tr>');
       }
     });
@@ -353,11 +387,13 @@
     var pop = $('popup');
     pop.innerHTML = '<div class="pp-head"><span>加载中…</span><span class="pp-close" onclick="document.getElementById(\'popup\').style.display=\'none\'">×</span></div>';
     pop.style.display = 'block';
+    pop.dataset.anchorX = x;
+    pop.dataset.anchorY = y;
     place(pop, x, y);
-    if (DETAIL_CACHE[currentDay]) { renderDetail(sid, pop); return; }
+    if (DETAIL_CACHE[currentDay]) { renderDetail(sid, pop, x, y); return; }
     fetchJSON(dayFile(currentDay).replace('.json', '.detail.json')).then(function (d) {
       DETAIL_CACHE[currentDay] = d;
-      renderDetail(sid, pop);
+      renderDetail(sid, pop, x, y);
     }).catch(function () {
       pop.innerHTML = '<div class="pp-head"><span>详情加载失败</span><span class="pp-close" onclick="document.getElementById(\'popup\').style.display=\'none\'">×</span></div>';
     });
@@ -366,7 +402,7 @@
   var SRC_META = { kpl: { label: '开盘啦', color: '#e24b4a' }, jygs: { label: '韭研公社', color: '#d29922' }, ths: { label: '同花顺', color: '#2f6fdb' }, xgb: { label: '选股吧', color: '#8e44ad' } };
   var SRC_ORDER = ['kpl', 'jygs', 'ths', 'xgb'];
 
-  function renderDetail(sid, pop) {
+  function renderDetail(sid, pop, x, y) {
     var d = DETAIL_CACHE[currentDay] || {};
     var e = (d.limitup || {})[sid];
     if (!e) { pop.innerHTML = '<div class="pp-head"><span>无详情</span><span class="pp-close" onclick="document.getElementById(\'popup\').style.display=\'none\'">×</span></div>'; return; }
@@ -384,12 +420,28 @@
     });
     if (!html) html += '<div class="muted">无原文</div>';
     pop.innerHTML = html;
+    place(pop, x, y);
   }
 
   function place(pop, x, y) {
-    var w = pop.offsetWidth, h = pop.offsetHeight;
-    pop.style.left = Math.max(10, Math.min(x + 12, window.innerWidth - w - 10)) + 'px';
-    pop.style.top = Math.max(10, Math.min(y + 10, window.innerHeight - h - 10)) + 'px';
+    var viewport = window.visualViewport;
+    var vw = viewport ? viewport.width : window.innerWidth;
+    var vh = viewport ? viewport.height : window.innerHeight;
+    var ox = viewport ? viewport.offsetLeft : 0;
+    var oy = viewport ? viewport.offsetTop : 0;
+    var margin = 12, gap = 10;
+    pop.style.maxHeight = Math.max(160, vh - margin * 2) + 'px';
+    pop.style.left = ox + margin + 'px';
+    pop.style.top = oy + margin + 'px';
+    var w = Math.min(pop.offsetWidth, vw - margin * 2);
+    var h = Math.min(pop.offsetHeight, vh - margin * 2);
+    var px = Number(x) || vw / 2, py = Number(y) || vh / 2;
+    var left = px + gap + w <= ox + vw - margin ? px + gap : px - w - gap;
+    var top = py + gap + h <= oy + vh - margin ? py + gap : py - h - gap;
+    left = Math.max(ox + margin, Math.min(left, ox + vw - w - margin));
+    top = Math.max(oy + margin, Math.min(top, oy + vh - h - margin));
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
   }
 
   /* ---------- 事件绑定 ---------- */
@@ -420,8 +472,7 @@
     }
     var themeConcept = ev.target.closest ? ev.target.closest('.theme-concept-row') : null;
     if (themeConcept) {
-      selectedThemeId = themeConcept.dataset.tid;
-      renderThemeWorkbench(CACHE[currentDay]);
+      locateThemeConcept(themeConcept.dataset.tid, themeConcept.dataset.conceptKey);
       return;
     }
     var themeNav = ev.target.closest ? ev.target.closest('.theme-nav-row') : null;
