@@ -3,6 +3,7 @@ from services.collector.kpl_history_backfill import (
     parse_plate_stats,
     parse_stock_rows,
     parse_sub_sectors,
+    merge_close_snapshot,
 )
 
 
@@ -46,3 +47,17 @@ def test_parse_sub_sectors_and_stock_rows_keep_reference_columns():
     assert rows[0]["position"] == "龙一"
     assert rows[0]["_blockId"] == "801001"
     assert rows[0]["_subCode"] == "801490"
+
+
+def test_merge_close_snapshot_restores_frozen_summary_and_sub_map():
+    staging = {"date": "2026-08-14", "sectors": [{"id": "801807", "strength": 7686}]}
+    close_view = {"date": "2026-08-14", "sectors": [
+        {"id": "801045", "name": "医药", "strength": 4152, "change": 0.54,
+         "mainNet": 4.06, "limit_up_count": 8, "up6_count": 6, "stock_count": 300,
+         "sub_sectors": [{"id": "801723", "name": "创新药", "strength": 1374.6}]}
+    ]}
+    result = merge_close_snapshot(staging, close_view)
+    assert result["sectors"][0]["id"] == "801045"
+    assert result["sectors"][0]["zt"] == 8
+    assert result["sectors"][0]["limit_up_source"] == "kpl_close_snapshot"
+    assert result["sub"]["801045"][0]["name"] == "创新药"

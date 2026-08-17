@@ -109,6 +109,43 @@ def parse_stock_rows(payload, parent_id, sub_sector=None):
     return result
 
 
+def merge_close_snapshot(staging, close_view):
+    """用盘后冻结摘要恢复同日 KPL 中间层，历史回补不得覆盖该口径。"""
+    if staging.get("date") and close_view.get("date") != staging.get("date"):
+        raise ValueError("收盘快照日期与目标日期不一致")
+    sectors, sub_map = [], {}
+    aliases = {"limit_up_count": "zt", "up6_count": "up6", "stock_count": "n"}
+    for archived in close_view.get("sectors", []) or []:
+        row = {k: v for k, v in archived.items() if k != "sub_sectors"}
+        for source_key, target_key in aliases.items():
+            if source_key in row:
+                row[target_key] = row.pop(source_key)
+        row["limit_up_source"] = "kpl_close_snapshot"
+        sectors.append(row)
+        sub_map[str(row.get("id", ""))] = list(archived.get("sub_sectors", []) or [])
+    result = dict(staging)
+    result.update({"date": close_view.get("date"), "sectors": sectors, "sub": sub_map,
+                   "history_quality": {"sector_count": len(sectors),
+                                       "authoritative_limit_up_count": len(sectors),
+                                       "complete": len(sectors) >= 80,
+                                       "source": "kpl_close_snapshot"}})
+    return result
+
+
+def restore_close_snapshot(date_str, output_dir, close_view_path):
+    path = os.path.join(output_dir, f"kpl_{date_str}.json")
+    with open(path, encoding="utf-8-sig") as fh:
+        staging = json.load(fh)
+    with open(close_view_path, encoding="utf-8-sig") as fh:
+        close_view = json.load(fh)
+    restored = merge_close_snapshot(staging, close_view)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(restored, fh, ensure_ascii=False, separators=(",", ":"))
+    os.replace(tmp, path)
+    return restored["history_quality"]
+
+
 class KplHistoryClient:
     def __init__(self, timeout=20):
         self.timeout = timeout
@@ -244,9 +281,15 @@ def main(argv=None):
     parser.add_argument("--limit", type=int, default=80)
     parser.add_argument("--workers", type=int, default=10)
     parser.add_argument("--with-details", action="store_true")
+    parser.add_argument("--close-view", help="盘后冻结的 day_<date>.json；提供时只恢复摘要，不请求历史接口")
     args = parser.parse_args(argv)
     for date_str in args.dates:
-        print(f"{date_str}: {backfill_day(date_str, args.output, args.limit, args.workers, with_details=args.with_details)}", flush=True)
+        if args.close_view:
+            quality = restore_close_snapshot(date_str, args.output, args.close_view)
+        else:
+            quality = backfill_day(date_str, args.output, args.limit, args.workers,
+                                   with_details=args.with_details)
+        print(f"{date_str}: {quality}", flush=True)
 
 
 if __name__ == "__main__":

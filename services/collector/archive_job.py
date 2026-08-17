@@ -221,7 +221,8 @@ def update_sector_trend(index, day_views):
         trend.append({"date": date_str, "top": [
             {k: s.get(k) for k in ("id", "name", "rank", "strength", "limit_up_count")} for s in sectors
         ]})
-        authoritative = sum(1 for s in all_sectors if s.get("limit_up_source") == "kpl_plate_info")
+        authoritative = sum(1 for s in all_sectors if s.get("limit_up_source") in
+                            ("kpl_plate_info", "kpl_close_snapshot"))
         quality.append({"date": date_str, "sector_count": len(all_sectors),
                         "authoritative_limit_up_count": authoritative,
                         "complete": len(all_sectors) >= 80 and authoritative >= 80})
