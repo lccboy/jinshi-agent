@@ -38,6 +38,22 @@ def test_buy_point_returns_dict():
     assert bp["stop"] < bp["buy_lo"] < bp["target"]
 
 
+def test_buy_point_respects_configured_weights():
+    # config weights 必须真正影响分数（rr 权重清零 → 分数下降），无 weights 时用文档默认值
+    closes = [10.0 + 0.01 * i for i in range(30)]
+    bars = make_bars(closes, highs=[10.4] * 30, lows=[9.9] * 30, vols=[1_000_000] * 30)
+    bars.append({"d": 20260301, "o": 10.48, "h": 10.6, "l": 10.45, "c": 10.55, "v": 2_500_000, "amt": 0})
+    hits = {"breakout": {"brk_pct": 0.5}}
+    models = {"breakout": {"family": "breakout"}}
+    base_cfg = {"models": models, "buy_point": {"filter": {}}}
+    zero_rr_cfg = {"models": models, "buy_point": {"filter": {}, "weights": {
+        "bias": 30, "chg": 12, "vol": 13, "stop_dist": 18, "rr": 0, "close_pos": 4, "cross_family": 12}}}
+    base = buy_point(bars, hits, base_cfg)
+    zero_rr = buy_point(bars, hits, zero_rr_cfg)
+    assert base["score"] > zero_rr["score"]
+    assert base["score"] > 0
+
+
 def test_run_strategy_end_to_end(tmp_path):
     # 一只突破票 + 一只平淡票 + 指数 → strategy/pool/events 输出
     kline_dir = str(tmp_path / "kline")

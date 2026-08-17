@@ -8,7 +8,7 @@
     "dwm": { "name": "④日周月堆量主升共振", "enabled": true, "family": "trend" },
     "lowstart": { "name": "⑤低位启动", "enabled": true, "family": "reversal" },
     "volbrk": { "name": "⑥突破放量", "enabled": true, "family": "breakout" },
-    "perfect_ten": { "name": "⑦十全十美", "enabled": true, "family": "money", "params": { "min_conditions": 11 } },
+    "perfect_ten": { "name": "⑦十全十美", "enabled": true, "family": "money", "params": { "min_conditions": 11, "note": "min_conditions=11 需 MMS/MMM/主力等 L2 数据补全（当前代码仅 7 条件，模型暂不可命中；数据补全前如需启用请调为 7）" } },
     "golden_vol": { "name": "⑧金量买入", "enabled": true, "family": "money", "params": { "window": 3, "vol_mult": 1.2 } },
     "hub_breakout": { "name": "⑨中枢突破", "enabled": true, "family": "breakout" },
     "div_reversal": { "name": "⑩背驰反转", "enabled": true, "family": "reversal" },

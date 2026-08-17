@@ -62,6 +62,18 @@ def buy_point(bars, hits, cfg):
     bv = bell.get("vol", [1.2, 2.6, 0.7, 5.0])
     br = bell.get("rr", [3, 18, 1.2, 40])
 
+    # 权重外置（STRATEGY_MODEL §4/§6）：config buy_point.weights 驱动，缺省用文档默认值
+    w = bp_cfg.get("weights") or {}
+    w_bias = w.get("bias", 30)
+    w_bias5 = w_bias * 0.6   # 文档展开：bias5=18 / bias10=12（60/40 拆分）
+    w_bias10 = w_bias * 0.4
+    w_chg = w.get("chg", 12)
+    w_vol = w.get("vol", 13)
+    w_risk = w.get("stop_dist", 18)
+    w_rr = w.get("rr", 20)
+    w_close = w.get("close_pos", 4)
+    w_fam = w.get("cross_family", 12)
+
     # 支撑/止损按模型族（与 gen_tri_report 口径一致）
     models = set(hits)
     if "breakout" in models or "hub_breakout" in models:
@@ -85,14 +97,14 @@ def buy_point(bars, hits, cfg):
     target = max(hhv(highs, 120, n - 1) if n >= 120 else max(highs), c * 1.08)
     rr = (target - c) / risk if risk > 0 else 0
 
-    s_bias = 18 * _bell(bias5, *b5) + 12 * _bell(bias10, *b10)
-    s_chg = 12 * _bell(chg, *bc)
-    s_vol = 13 * _bell(vr, *bv)
-    s_risk = 18.0 if risk / c <= 0.03 else (12.0 if risk / c <= 0.05 else (6.0 if risk / c <= 0.08 else 1.0))
-    s_rr = 20 * _bell(rr, *br)
-    s_close = 4.0 if t["h"] > t["l"] and (t["h"] - c) / (t["h"] - t["l"]) <= 0.3 else 0.0
+    s_bias = w_bias5 * _bell(bias5, *b5) + w_bias10 * _bell(bias10, *b10)
+    s_chg = w_chg * _bell(chg, *bc)
+    s_vol = w_vol * _bell(vr, *bv)
+    s_risk = w_risk if risk / c <= 0.03 else (w_risk * 2 / 3 if risk / c <= 0.05 else (w_risk / 3 if risk / c <= 0.08 else 1.0))
+    s_rr = w_rr * _bell(rr, *br)
+    s_close = w_close if t["h"] > t["l"] and (t["h"] - c) / (t["h"] - t["l"]) <= 0.3 else 0.0
     families = {cfg["models"][m]["family"] for m in models if m in cfg.get("models", {})}
-    s_fam = 12.0 if len(families) > 1 else 0.0
+    s_fam = w_fam if len(families) > 1 else 0.0
     score = round(s_bias + s_chg + s_vol + s_risk + s_rr + s_close + s_fam, 1)
 
     flt = bp_cfg.get("filter", {})
