@@ -180,3 +180,38 @@ a.stk{color:var(--c-primary)}
 
 @media(max-width:1100px){.theme-live{display:none}.theme-sidebar{width:250px}.sector-sidebar{width:300px;min-width:300px}}
 @media(max-width:760px){.app{height:auto;min-height:100vh;overflow:auto}.main:has(.theme-workbench),.main:has(.sector-workbench){overflow:auto}.theme-workbench,.sector-workbench{display:block;height:auto}.theme-sidebar,.sector-sidebar{width:100%;min-width:0;height:42vh;border-right:0;border-bottom:1px solid var(--c-border)}.theme-detail,.sector-detail{min-height:58vh}.theme-live{display:none}.sector-chart-empty{height:150px}.topbar{gap:8px}.tabs{order:3;width:100%}.detail-bar{height:auto;min-height:74px;flex-wrap:wrap;padding:8px 12px}.theme-mode-controls{order:3;width:100%;margin:4px 0 0}.theme-date-select{flex:1}.detail-content{overflow:visible}.theme-stock-grid{grid-template-columns:1fr}.concept-table .col-l1,.concept-table .col-l2{min-width:82px}.td-l1,.td-l2,.td-stocks{padding:8px}}
+
+/* ========== 策略模型页（配置面板 + 命中池） ========== */
+.kpi-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:12px}
+.kpi{background:#1f2937;border:1px solid #30363d;border-radius:8px;padding:10px 12px;text-align:center}
+.kpi .num{font-size:22px;font-weight:700;color:#58a6ff}
+.kpi .lbl{font-size:11px;color:#8b949e;margin-top:2px}
+.seg{display:flex;gap:6px;margin:2px 0 12px;flex-wrap:wrap}
+.seg-btn{padding:5px 14px;border:1px solid #30363d;border-radius:6px;background:transparent;color:#8b949e;font-size:12.5px;cursor:pointer}
+.seg-btn:hover{color:#c9d1d9;border-color:#58a6ff}
+.seg-btn.active{background:#1f2937;border-color:#58a6ff;color:#c9d1d9;font-weight:600}
+.time-grp{margin-bottom:14px}
+.time-grp-h{padding:6px 12px;background:#1f2937;border:1px solid #30363d;border-radius:6px 6px 0 0;font-size:12.5px;font-weight:600;color:#e6edf3;display:flex;align-items:center;gap:8px}
+.time-grp-h .cnt{color:#58a6ff;font-size:11px}
+.time-grp .tblwrap{max-height:40vh;border:1px solid #30363d;border-top:0;border-radius:0 0 6px 6px}
+.m-stats{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
+.m-stat{display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid #30363d;border-radius:6px;background:transparent;cursor:pointer;font-size:12px;color:#c9d1d9}
+.m-stat b{color:#58a6ff;font-size:13px}
+.m-stat:hover{border-color:#58a6ff}
+.m-stat.active{background:#1f2937;border-color:#58a6ff}
+.cfg-row{display:flex;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid #21262d;font-size:12.5px}
+.cfg-row:last-of-type{border-bottom:0}
+.cfg-name{width:150px;font-weight:600;color:#e6edf3;flex-shrink:0}
+.cfg-family{width:58px;color:#8b949e;font-size:11px;flex-shrink:0}
+.cfg-params{flex:1;min-width:120px;max-width:320px;background:#0d1117;border:1px solid #30363d;border-radius:5px;color:#c9d1d9;padding:4px 8px;font-size:11.5px;font-family:Consolas,monospace}
+.cfg-no-params{color:#5c6370;font-size:11px;width:120px;display:inline-block}
+.cfg-toggle{accent-color:#58a6ff;cursor:pointer}
+.cfg-state{width:36px;color:#8b949e;font-size:11px}
+.cfg-actions{padding:12px;display:flex;align-items:center;gap:10px}
+.btn-primary{padding:7px 20px;border:1px solid #58a6ff;border-radius:6px;background:#1f6feb;color:#fff;font-size:13px;cursor:pointer;font-weight:600}
+.btn-primary:hover{background:#388bfd}
+.btn-ghost{padding:7px 16px;border:1px solid #30363d;border-radius:6px;background:transparent;color:#8b949e;font-size:12.5px;cursor:pointer}
+.btn-ghost:hover{color:#c9d1d9;border-color:#58a6ff}
+.cfg-msg{font-size:12px;color:#8b949e}
+.cfg-msg.ok{color:#3fb950}
+.cfg-msg.err{color:#f85149}

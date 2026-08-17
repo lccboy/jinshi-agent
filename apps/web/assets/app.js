@@ -663,17 +663,152 @@
   }
 
   /* 策略模型：命中 + 买点 */
+  /* ---------- 策略模型页（V0.3+：在线配置 + 全量命中池） ---------- */
+  var MODEL_CN = { reversal: '①低吸反转', breakout: '②横盘突破', weekly: '③周线堆量', dwm: '④日周月堆量主升共振',
+    lowstart: '⑤低位启动', volbrk: '⑥突破放量', perfect_ten: '⑦十全十美', golden_vol: '⑧金量买入',
+    hub_breakout: '⑨中枢突破', div_reversal: '⑩背驰反转', ma_momentum: '⑪多头排列', bottom_rev: '⑫底部起涨',
+    multi_factor: '⑬多因共振', sub_low: '⑭低吸型', sub_trend_vol: '⑮趋势放量型', sub_breakout: '⑯突破型', sub_main: '⑰主升型' };
+  var STRAT_ALL = null;
+  var stratMode = 'all';
+  var stratModelFilter = '';
+  function strategyRows(view) {
+    if (STRAT_ALL && STRAT_ALL.date === currentDay) return STRAT_ALL.list;
+    return (view.strategy_top || []).map(function (e) {
+      return { stock_id: e.stock_id, name: '', score: e.score, models: e.models, buy_lo: e.buy_point,
+               stop: e.stop, stop_pct: e.stop_pct, rr: e.rr, stars: e.stars, entry_time: '',
+               price: null, chg: null };
+    });
+  }
+  function loadStrategyAll() {
+    if (STRAT_ALL && STRAT_ALL.date === currentDay) return Promise.resolve(STRAT_ALL);
+    STRAT_ALL = null;
+    return fetchJSON('data/web/strategy_all.json').then(function (d) {
+      if (d && d.date === currentDay) STRAT_ALL = d;
+      return STRAT_ALL;
+    }).catch(function () { STRAT_ALL = null; return null; });
+  }
+  function limitupEntryMap(view) {
+    var m = {};
+    (view.limitup || []).forEach(function (e) { m[e.stock_id] = e; });
+    return m;
+  }
+  function conceptChips(sid) {
+    var slim = LIBS.stocks_slim || {}, sectors = LIBS.sectors || {}, themes = LIBS.themes || {};
+    var rec = slim[sid] || { s: [], t: [] };
+    var chips = (rec.s || []).slice(0, 3).map(function (s) {
+      return '<span class="tag-chip sec" data-go="sector" data-id="' + esc(s) + '">' + esc((sectors[s] || {}).name || s) + '</span>';
+    }).concat((rec.t || []).slice(0, 3).map(function (t) {
+      return '<span class="tag-chip thm" data-go="theme" data-id="' + esc(t) + '">' + esc((themes[t] || {}).name || t) + '</span>';
+    })).join('');
+    return chips || '<span class="muted">-</span>';
+  }
+  function modelBadges(models) {
+    var keys = Object.keys(models || {});
+    return keys.map(function (m) { return '<span class="badge b-model">' + esc(MODEL_CN[m] || m) + '</span>'; }).join('') || '-';
+  }
+  function strategyRowHtml(r, names, reasons) {
+    var chg = r.chg == null ? '-' : fmtPct(r.chg);
+    var reasonEntry = reasons[r.stock_id] || { reason: '', sourceCount: 0 };
+    return '<tr><td class="up">' + (r.score == null ? '-' : Number(r.score).toFixed(1)) + '</td>' +
+      '<td class="l">' + conceptChips(r.stock_id) + '</td>' +
+      '<td class="l">' + code6(r.stock_id) + '</td>' +
+      '<td class="l">' + stk(r.stock_id, (names[r.stock_id] || r.name || code6(r.stock_id))) + '</td>' +
+      '<td class="l">' + modelBadges(r.models) + '</td>' +
+      '<td>' + (r.price == null ? '-' : Number(r.price).toFixed(2)) + '</td>' +
+      '<td>' + (r.buy_lo == null ? '-' : Number(r.buy_lo).toFixed(2)) + '</td>' +
+      '<td>' + (r.stop == null ? '-' : Number(r.stop).toFixed(2)) + '</td>' +
+      '<td>' + (r.stop_pct == null ? '-' : Number(r.stop_pct).toFixed(2) + '%') + '</td>' +
+      '<td>' + (r.rr == null ? '-' : Number(r.rr).toFixed(1)) + '</td>' +
+      '<td class="' + cls(chg) + '">' + chg + '</td>' +
+      '<td class="l">' + reasonCell(r.stock_id, reasonEntry) + '</td></tr>';
+  }
+  function stratTable(rows, names, reasons) {
+    var thead = '<thead><tr><th>评分</th><th class="l">概念/板块</th><th class="l">代码</th><th class="l">名称</th>' +
+      '<th class="l">命中模型</th><th>现价</th><th>参考买入区</th><th>止损位</th><th>止损%</th><th>风险回报比</th><th>今日</th><th class="l">涨停原因</th></tr></thead>';
+    return '<div class="tblwrap"><table>' + thead + '<tbody>' +
+      (rows.map(function (r) { return strategyRowHtml(r, names, reasons); }).join('') ||
+        '<tr><td colspan="12" class="muted">暂无策略命中</td></tr>') + '</tbody></table></div>';
+  }
+  function timeBucket(t) {
+    if (!t) return '盘后';
+    var parts = t.split(':');
+    if (parts.length < 2) return '盘后';
+    var m = parseInt(parts[0], 10) * 60 + parseInt(parts[1], 10);
+    if (m <= 570) return '09:30 前（竞价）';
+    if (m <= 630) return '09:30-10:30';
+    if (m <= 690) return '10:30-11:30';
+    if (m <= 750) return '13:00-14:00';
+    if (m <= 810) return '14:00-15:00';
+    return '盘后';
+  }
+  function renderStratBody(rows, names, reasons) {
+    if (stratModelFilter) rows = rows.filter(function (r) { return (r.models || {})[stratModelFilter]; });
+    if (stratMode === 'time') {
+      var buckets = ['09:30 前（竞价）', '09:30-10:30', '10:30-11:30', '13:00-14:00', '14:00-15:00', '盘后'];
+      var groups = {};
+      buckets.forEach(function (b) { groups[b] = []; });
+      rows.forEach(function (r) { (groups[timeBucket(r.entry_time)] || groups['盘后']).push(r); });
+      var html = buckets.filter(function (b) { return groups[b].length; }).map(function (b) {
+        return '<div class="time-grp"><div class="time-grp-h">' + esc(b) + ' <span class="cnt">' + groups[b].length + ' 只</span></div>' +
+          stratTable(groups[b], names, reasons) + '</div>';
+      }).join('');
+      return html || '<div class="muted" style="padding:16px">该模式暂无数据</div>';
+    }
+    if (stratMode === 'model') {
+      var stat = {};
+      rows.forEach(function (r) { Object.keys(r.models || {}).forEach(function (m) { stat[m] = (stat[m] || 0) + 1; }); });
+      var statHtml = Object.keys(stat).sort(function (a, b) { return stat[b] - stat[a]; }).map(function (m) {
+        return '<button type="button" class="m-stat' + (stratModelFilter === m ? ' active' : '') + '" data-model="' + esc(m) + '">' +
+          '<span class="badge b-model">' + esc(MODEL_CN[m] || m) + '</span><b>' + stat[m] + '</b></button>';
+      }).join('') || '<span class="muted">暂无</span>';
+      return '<div class="m-stats">' + statHtml + '</div>' + stratTable(rows, names, reasons);
+    }
+    return stratTable(rows, names, reasons);
+  }
+  function strategyConfigCard() {
+    return card('⚙️ 策略模型配置', '修改后保存，下次归档（15:30）重跑生效',
+      '<div class="cfg-wrap" id="cfgWrap"><div class="muted">加载配置…</div></div>', false);
+  }
+  function loadStrategyConfig() {
+    fetchJSON('api/strategy/config', 'no-cache').then(function (r) {
+      var cfg = r.data || r;
+      var models = cfg.models || {};
+      var rows = Object.keys(MODEL_CN).map(function (mid) {
+        var m = models[mid] || { name: MODEL_CN[mid], enabled: true, family: '', params: {} };
+        var params = m.params && Object.keys(m.params).length
+          ? '<input class="cfg-params" data-mid="' + esc(mid) + '" value="' + esc(JSON.stringify(m.params)) + '" title="参数 JSON（保存后生效）">'
+          : '<span class="cfg-no-params">—</span>';
+        return '<div class="cfg-row"><label class="cfg-name" data-mid="' + esc(mid) + '">' + esc(MODEL_CN[mid] || mid) + '</label>' +
+          '<span class="cfg-family">' + esc(m.family || '') + '</span>' + params +
+          '<input type="checkbox" class="cfg-toggle" data-mid="' + esc(mid) + '"' + (m.enabled ? ' checked' : '') + '><span class="cfg-state">' + (m.enabled ? '启用' : '停用') + '</span></div>';
+      }).join('');
+      $('cfgWrap').innerHTML = rows +
+        '<div class="cfg-actions"><button type="button" class="btn-primary" id="cfgSave">保存配置</button>' +
+        '<button type="button" class="btn-ghost" id="cfgReset">恢复默认</button><span class="cfg-msg" id="cfgMsg"></span></div>';
+    }).catch(function () {
+      $('cfgWrap').innerHTML = '<div class="muted">配置接口不可用（api/strategy/config）</div>';
+    });
+  }
   function vStrategy(view) {
-    var topEntries = view.strategy_top || [];
-    var top = topEntries.map(function (e, i) {
-      var models = Object.keys(e.models || {}).map(function (m) { return '<span class="badge b-model">' + esc(m) + '</span>'; }).join(' ');
-      return '<tr><td>' + (i + 1) + '</td><td class="l">' + stk(e.stock_id, code6(e.stock_id)) + '</td>' +
-        '<td class="l">' + models + '</td><td class="up">' + Number(e.score || 0).toFixed(1) + '</td>' +
-        '<td>' + (e.buy_point ? Number(e.buy_point).toFixed(2) : '-') + '</td><td>' + (e.target ? Number(e.target).toFixed(2) : '-') + '</td></tr>';
-    }).join('');
-    var body = '<div class="tblwrap"><table><thead><tr><th>#</th><th class="l">代码</th><th class="l">命中模型</th><th>评分</th><th>买入区</th><th>目标</th></tr></thead><tbody>' +
-      (top || '<tr><td colspan="6" class="muted">暂无策略命中（V0.3 策略引擎接入）</td></tr>') + '</tbody></table></div>';
-    return card('🎯 策略模型 · 最佳买点 TOP' + topEntries.length, '17 模型池（config/strategy.json 可编辑）', body, true);
+    Promise.all([loadExpandLibs(), loadStrategyAll()]).then(function () { render(); });
+    loadStrategyConfig();
+    var rows = strategyRows(view).slice(0, 300);
+    var names = LIBS.stocks_slim || {};
+    var reasons = limitupEntryMap(view);
+    var kpi = [
+      ['命中总数', rows.length],
+      ['预警池', ((view.pools || {}).pools || {}).alert ? Object.keys(((view.pools || {}).pools || {}).alert).length : 0],
+      ['最高评分', rows[0] ? Number(rows[0].score).toFixed(1) : '-'],
+      ['模型覆盖', Object.keys(rows.reduce(function (a, r) { Object.keys(r.models || {}).forEach(function (m) { a[m] = 1; }); return a; }, {})).length + '/17']];
+    var kpiHtml = '<div class="kpi-row">' + kpi.map(function (k) {
+      return '<div class="kpi"><div class="num">' + k[1] + '</div><div class="lbl">' + k[0] + '</div></div>';
+    }).join('') + '</div>';
+    var seg = '<div class="seg" id="stratSeg">' +
+      '<button type="button" class="seg-btn' + (stratMode === 'all' ? ' active' : '') + '" data-mode="all">全部</button>' +
+      '<button type="button" class="seg-btn' + (stratMode === 'time' ? ' active' : '') + '" data-mode="time">按时间归类</button>' +
+      '<button type="button" class="seg-btn' + (stratMode === 'model' ? ' active' : '') + '" data-mode="model">按模型分类</button></div>';
+    return strategyConfigCard() +
+      card('🎯 策略模型 · 命中池', '评分降序 · TOP 300', kpiHtml + seg + '<div id="stratBody">' + renderStratBody(rows, names, reasons) + '</div>', false);
   }
 
   /* 历史选股：预警池 + 候选池（星级/确认/模型命中） */
@@ -872,6 +1007,48 @@
     }
     var secRow = ev.target.closest ? ev.target.closest('.sec-row') : null;
     if (secRow) { toggleSectorExpand(secRow); return; }
+    var segBtn = ev.target.closest ? ev.target.closest('#stratSeg .seg-btn') : null;
+    if (segBtn) {
+      stratMode = segBtn.dataset.mode;
+      document.querySelectorAll('#stratSeg .seg-btn').forEach(function (b) { b.classList.toggle('active', b === segBtn); });
+      var view2 = CACHE[currentDay] || {};
+      var rows2 = strategyRows(view2).slice(0, 300);
+      $('stratBody').innerHTML = renderStratBody(rows2, LIBS.stocks_slim || {}, limitupEntryMap(view2));
+      return;
+    }
+    var mStat = ev.target.closest ? ev.target.closest('.m-stat') : null;
+    if (mStat) {
+      stratModelFilter = (stratModelFilter === mStat.dataset.model) ? '' : mStat.dataset.model;
+      document.querySelectorAll('.m-stat').forEach(function (b) { b.classList.toggle('active', b.dataset.model === stratModelFilter); });
+      var view3 = CACHE[currentDay] || {};
+      $('stratBody').innerHTML = renderStratBody(strategyRows(view3).slice(0, 300), LIBS.stocks_slim || {}, limitupEntryMap(view3));
+      return;
+    }
+    if (ev.target && ev.target.id === 'cfgSave') {
+      var cfgWrap = $('cfgWrap');
+      var models = {};
+      Object.keys(MODEL_CN).forEach(function (mid) {
+        var toggle = cfgWrap.querySelector('.cfg-toggle[data-mid="' + mid + '"]');
+        if (!toggle) return;
+        var paramsInput = cfgWrap.querySelector('.cfg-params[data-mid="' + mid + '"]');
+        var params = {};
+        try { params = paramsInput ? JSON.parse(paramsInput.value) : {}; } catch (e) { params = {}; }
+        models[mid] = { name: MODEL_CN[mid], enabled: toggle.checked, family: '', params: params };
+      });
+      fetch('api/strategy/config', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ version: '1.0', models: models }) })
+        .then(function (r) { return r.json(); }).then(function (res) {
+          $('cfgMsg').textContent = res.ok ? ('已保存 ' + new Date().toLocaleTimeString() + '（15:30 归档重跑生效）') : ('保存失败：' + (res.error || ''));
+          $('cfgMsg').className = 'cfg-msg ' + (res.ok ? 'ok' : 'err');
+        }).catch(function (e) { $('cfgMsg').textContent = '保存失败：' + e.message; $('cfgMsg').className = 'cfg-msg err'; });
+      return;
+    }
+    if (ev.target && ev.target.id === 'cfgReset') loadStrategyConfig();
+    var cfgToggle = ev.target.closest ? ev.target.closest('.cfg-toggle') : null;
+    if (cfgToggle) {
+      var state = cfgToggle.parentElement.querySelector('.cfg-state');
+      if (state) state.textContent = cfgToggle.checked ? '启用' : '停用';
+    }
     var btn = ev.target.closest ? ev.target.closest('.reason-pop') : null;
     if (btn) { ev.stopPropagation(); showPopup(btn.dataset.sid, ev.clientX, ev.clientY); return; }
     var stockRow = ev.target.closest ? ev.target.closest('.sector-stock-row') : null;

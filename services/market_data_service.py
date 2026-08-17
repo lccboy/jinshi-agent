@@ -250,6 +250,8 @@ def handle_api(path, query):
 
     if path == "/api/health":
         return {"status": "ok", "latest": latest_date()}, 200
+    if path == "/api/strategy/config":
+        return ok(strategy_config(), None, "config"), 200
     if path == "/api/days":
         idx = load_json("web", "index.json") or {}
         return ok({"days": idx.get("days", [])}, None, "view"), 200
@@ -363,6 +365,20 @@ class Handler(BaseHTTPRequestHandler):
             payload, status = {"error": str(exc)}, 500
         self._send(payload, status)
 
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path != "/api/strategy/config":
+            self._send({"error": "not found"}, 404)
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(length).decode("utf-8"))
+            saved = save_strategy_config(body)
+            self._send({"ok": True, "path": saved,
+                        "saved_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}, 200)
+        except Exception as exc:
+            self._send({"error": str(exc)}, 400)
+
     def log_message(self, fmt, *args):
         pass  # 静默访问日志（生产可改 logging）
 
@@ -371,6 +387,29 @@ def make_server(data_dir, port=PORT, host=HOST):
     global DATA_DIR
     DATA_DIR = os.path.abspath(data_dir)
     return ThreadingHTTPServer((host, port), Handler)
+
+
+def strategy_config():
+    """读 config/strategy.json（项目根下一级，DATA_DIR 的上级）。"""
+    path = os.path.join(os.path.dirname(DATA_DIR), "config", "strategy.json")
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def save_strategy_config(cfg):
+    """校验并原子写回 config/strategy.json（前端策略配置面板保存）。"""
+    models = cfg.get("models")
+    if not isinstance(models, dict) or not models:
+        raise ValueError("models 缺失或为空")
+    path = os.path.join(os.path.dirname(DATA_DIR), "config", "strategy.json")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    temp = path + ".tmp"
+    with open(temp, "w", encoding="utf-8") as fh:
+        json.dump(cfg, fh, ensure_ascii=False, indent=2)
+    os.replace(temp, path)
+    return path
 
 
 def main(argv=None):

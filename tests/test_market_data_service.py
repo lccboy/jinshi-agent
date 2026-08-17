@@ -60,6 +60,12 @@ def make_client(tmp_data, tmp_path):
     os.makedirs(normalized, exist_ok=True)
     with open(os.path.join(normalized, "stocks.json"), "w", encoding="utf-8") as fh:
         json.dump({"SZ300487": {"name": "蓝晓科技"}, "SH600001": {"name": "测试股份"}}, fh, ensure_ascii=False)
+
+    config_dir = os.path.join(tmp_path, "config")
+    os.makedirs(config_dir, exist_ok=True)
+    with open(os.path.join(config_dir, "strategy.json"), "w", encoding="utf-8") as fh:
+        json.dump({"version": "1.0", "models": {
+            "breakout": {"name": "②横盘突破", "enabled": True, "family": "breakout"}}}, fh, ensure_ascii=False)
     kline = os.path.join(tmp_data, "kline")
     os.makedirs(kline, exist_ok=True)
     with open(os.path.join(kline, "SZ300487.json"), "w", encoding="utf-8") as fh:
@@ -74,6 +80,11 @@ def make_client(tmp_data, tmp_path):
     class Client:
         def get(self, path):
             with urllib.request.urlopen(base + path, timeout=10) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        def post(self, path, payload):
+            req = urllib.request.Request(base + path, data=json.dumps(payload).encode("utf-8"),
+                                         headers={"Content-Type": "application/json"}, method="POST")
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         def raw(self, path):
             try:
@@ -213,3 +224,15 @@ def test_agent_summary_default_latest(api):
     # 缺省 date → 最新交易日
     r = api.get("/agent/summary")
     assert r["meta"]["data_date"] == "2026-08-14"
+
+
+def test_strategy_config_get_and_post(api):
+    cfg = api.get("/strategy/config")
+    assert "models" in cfg["data"]
+    assert cfg["data"]["models"]["breakout"]["enabled"] is True
+    updated = cfg["data"]
+    updated["models"]["breakout"]["enabled"] = False
+    r = api.post("/strategy/config", updated)
+    assert r["ok"] is True
+    cfg2 = api.get("/strategy/config")
+    assert cfg2["data"]["models"]["breakout"]["enabled"] is False
