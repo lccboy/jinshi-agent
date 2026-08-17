@@ -291,3 +291,23 @@ def test_update_sector_trend_keeps_latest_ten_trading_days():
     assert len(idx["sector_trend"]) == 10
     assert idx["sector_trend"][0]["date"] == "2026-08-12"
     assert idx["sector_trend"][0]["top"][0]["limit_up_count"] == 12
+
+
+def test_update_sector_trend_reports_authoritative_history_coverage():
+    idx = {"days": [{"date": "2026-08-12"}, {"date": "2026-08-11"}]}
+    views = {
+        "2026-08-12": {"sectors": [
+            {"id": "801001", "name": "芯片", "rank": 1, "strength": 8000,
+             "limit_up_count": 23, "limit_up_source": "kpl_plate_info"},
+            {"id": "801002", "name": "算力", "rank": 2, "strength": 7000,
+             "limit_up_count": 18},
+        ]},
+        "2026-08-11": {"sectors": []},
+    }
+    update_sector_trend(idx, views)
+    assert idx["sector_history_quality"] == [
+        {"date": "2026-08-12", "sector_count": 2, "authoritative_limit_up_count": 1,
+         "complete": False},
+        {"date": "2026-08-11", "sector_count": 0, "authoritative_limit_up_count": 0,
+         "complete": False},
+    ]

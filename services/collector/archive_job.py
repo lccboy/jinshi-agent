@@ -62,7 +62,7 @@ def build_day_view(date_str, facts):
     view["sectors"] = [
         {"id": sid, **{k: sec.get(k) for k in ("name", "strength", "change", "volume", "mainNet", "marketCap",
                                                    "rank", "limit_up_count", "up6_count", "stock_count",
-                                                   "sub_sectors", "boom_reason") if k in sec}}
+                                                   "sub_sectors", "boom_reason", "limit_up_source") if k in sec}}
         for sid, sec in sorted(sectors_fact.items(), key=lambda kv: kv[1].get("strength", 0), reverse=True)
     ]
 
@@ -182,6 +182,7 @@ def build_kpl_sector_views(daily, stocks_doc):
                         "change": val("change"), "volume": val("volume"), "mainNet": val("mainNet"),
                         "marketCap": val("marketCap"), "rank": val("rank"),
                         "limit_up_count": val("zt") if has_zt else sum(1 for x in changes if x >= 9.8),
+                        "limit_up_source": raw.get("limit_up_source", "stock_list_derived"),
                         "up6_count": val("up6") if has_up6 else sum(1 for x in changes if 6 <= x < 9.8),
                         "stock_count": val("n") if has_n else len(plate_rows), "sub_sectors": children})
     sectors.sort(key=lambda x: (-float(x.get("strength") or 0), x["name"]))
@@ -213,12 +214,19 @@ def update_sector_trend(index, day_views):
     """把最近 10 个交易日的板块前十写入 index，供首屏一次请求展示。"""
     dates = sorted((d.get("date") for d in index.get("days", []) if d.get("date")), reverse=True)[:10]
     trend = []
+    quality = []
     for date_str in dates:
-        sectors = (day_views.get(date_str) or {}).get("sectors", [])[:10]
+        all_sectors = (day_views.get(date_str) or {}).get("sectors", [])
+        sectors = all_sectors[:10]
         trend.append({"date": date_str, "top": [
             {k: s.get(k) for k in ("id", "name", "rank", "strength", "limit_up_count")} for s in sectors
         ]})
+        authoritative = sum(1 for s in all_sectors if s.get("limit_up_source") == "kpl_plate_info")
+        quality.append({"date": date_str, "sector_count": len(all_sectors),
+                        "authoritative_limit_up_count": authoritative,
+                        "complete": len(all_sectors) >= 80 and authoritative >= 80})
     index["sector_trend"] = trend
+    index["sector_history_quality"] = quality
     return index
 
 
