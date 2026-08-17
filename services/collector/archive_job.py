@@ -155,6 +155,7 @@ def build_kpl_sector_views(daily, stocks_doc):
     """KPL 每日板块/成分文件 → Web 板块摘要与懒加载详情。字段名保持 DATA_MODEL §4.4 口径。"""
     sub_map = daily.get("sub") or daily.get("子板块映射") or {}
     source_sectors = daily.get("sectors") or daily.get("板块排行") or []
+    rows_by_plate = stocks_doc.get("stocks", stocks_doc) or {}
     sectors = []
     aliases = {"id": "代码", "name": "名称", "strength": "强度", "change": "涨跌%",
                "volume": "成交额_亿", "mainNet": "主力净额_亿", "marketCap": "市值_亿",
@@ -163,6 +164,16 @@ def build_kpl_sector_views(daily, stocks_doc):
         def val(key, default=0):
             return raw.get(key, raw.get(aliases[key], default))
         sid = str(val("id", ""))
+        plate_rows = rows_by_plate.get(sid) or []
+        changes = []
+        for row in plate_rows:
+            try:
+                changes.append(float(row.get("change", row.get("涨跌幅%", -999))))
+            except (TypeError, ValueError):
+                continue
+        has_zt = "zt" in raw or "涨停数" in raw
+        has_up6 = "up6" in raw or "大于6%" in raw
+        has_n = "n" in raw or "家数" in raw
         children = [{"id": str(x.get("id", x.get("代码", ""))),
                      "name": x.get("name", x.get("名称", "")),
                      "strength": x.get("strength", x.get("强度", 0))}
@@ -170,14 +181,14 @@ def build_kpl_sector_views(daily, stocks_doc):
         sectors.append({"id": sid, "name": val("name", sid), "strength": val("strength"),
                         "change": val("change"), "volume": val("volume"), "mainNet": val("mainNet"),
                         "marketCap": val("marketCap"), "rank": val("rank"),
-                        "limit_up_count": val("zt"), "up6_count": val("up6"),
-                        "stock_count": val("n"), "sub_sectors": children})
+                        "limit_up_count": val("zt") if has_zt else sum(1 for x in changes if x >= 9.8),
+                        "up6_count": val("up6") if has_up6 else sum(1 for x in changes if 6 <= x < 9.8),
+                        "stock_count": val("n") if has_n else len(plate_rows), "sub_sectors": children})
     sectors.sort(key=lambda x: (-float(x.get("strength") or 0), x["name"]))
     for rank, sector in enumerate(sectors, 1):
         sector["rank"] = rank
 
     plates = {}
-    rows_by_plate = stocks_doc.get("stocks", stocks_doc) or {}
     for pid, rows in rows_by_plate.items():
         normalized = []
         for row in rows or []:

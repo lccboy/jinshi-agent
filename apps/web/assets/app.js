@@ -474,7 +474,7 @@
     Promise.all([loadLib('sectors.json'), loadExpandLibs()]).then(function () { renderSectorWorkbench(view); });
     var trend = (SECTOR_INDEX.sector_trend || []).map(function (day) {
       return '<div class="sector-trend-day"><b>' + esc(day.date.slice(5)) + '</b>' + (day.top || []).map(function (s) {
-        return '<span title="强度 ' + esc(s.strength) + '">' + esc(s.rank) + '. ' + esc(s.name) + ' <i>' + (s.limit_up_count || 0) + '</i></span>';
+        return '<span class="sector-trend-cell' + (s.id === selectedSectorId ? ' selected' : '') + '" data-trend-sid="' + esc(s.id) + '" title="强度 ' + esc(s.strength) + ' · 涨停 ' + (s.limit_up_count || 0) + '">' + esc(s.rank) + '. ' + esc(s.name) + ' <i>涨停' + (s.limit_up_count || 0) + '</i></span>';
       }).join('') + '</div>';
     }).join('');
     return '<div class="sector-shell"><details class="sector-trend"><summary>板块强度排序变化 <small>近 10 个交易日</small></summary><div class="sector-trend-grid">' + trend + '</div></details>' +
@@ -510,6 +510,13 @@
       '<div class="sector-filterbar"><button data-sector-filter="all">全部</button><button data-sector-filter="zt">涨停</button><button data-sector-filter="up6">≥6%</button><button data-sector-filter="up0">0~6%</button><button data-sector-filter="dn">&lt;0%</button></div>' +
       '<div id="sectorStockTable" class="sector-stock-table"><div class="muted">加载板块成分股…</div></div>';
     loadSectorStocks(view, sid);
+    syncSectorTrendHighlight();
+  }
+
+  function syncSectorTrendHighlight() {
+    document.querySelectorAll('.sector-trend-cell').forEach(function (cell) {
+      cell.classList.toggle('selected', cell.dataset.trendSid === selectedSectorId);
+    });
   }
 
   function loadSectorStocks(view, sid) {

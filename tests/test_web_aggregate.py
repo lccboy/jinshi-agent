@@ -270,6 +270,19 @@ def test_build_kpl_sector_views_keeps_reference_fields_and_children():
     assert detail["plates"]["801490"][0]["change"] == 10.01
 
 
+def test_build_kpl_sector_views_backfills_missing_limit_counts_from_plate_stocks():
+    daily = {"sectors": [{"id": "801001", "name": "芯片", "strength": 100}], "sub": {}}
+    stocks = {"stocks": {"801001": [
+        {"code": "000001", "name": "甲", "change": 10.01},
+        {"code": "300001", "name": "乙", "change": 7.2},
+        {"code": "600001", "name": "丙", "change": 1.2},
+    ]}}
+    sectors, _ = build_kpl_sector_views(daily, stocks)
+    assert sectors[0]["limit_up_count"] == 1
+    assert sectors[0]["up6_count"] == 1
+    assert sectors[0]["stock_count"] == 3
+
+
 def test_update_sector_trend_keeps_latest_ten_trading_days():
     idx = {"days": [{"date": f"2026-08-{day:02d}"} for day in range(1, 13)]}
     views = {d["date"]: {"sectors": [{"id": "801001", "name": "芯片", "rank": 1,
