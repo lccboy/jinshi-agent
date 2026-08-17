@@ -408,15 +408,11 @@
   function syncThemeModeControls(view) {
     var select = $('themeDateSel'), toggle = $('themeRealtimeToggle'), status = $('themeModeStatus');
     if (!select || !toggle || !status) return;
-    select.innerHTML = DAYS.map(function (d) { return '<option value="' + esc(d.date) + '">' + esc(d.date) + '</option>'; }).join('');
+    select.innerHTML = '<option value="' + SECTOR_TODAY_VALUE + '">当天 · 实时</option>' + DAYS.map(function (d) { return '<option value="' + esc(d.date) + '">' + esc(d.date) + '</option>'; }).join('');
     if (themeRealtime) {
-      var today = localToday();
-      if (!DAYS.some(function (d) { return d.date === today; })) {
-        select.insertAdjacentHTML('afterbegin', '<option value="' + esc(today) + '">' + esc(today) + '（盘中）</option>');
-      }
-      select.value = today;
+      select.value = SECTOR_TODAY_VALUE;
     } else select.value = themeArchiveDay || currentDay;
-    select.disabled = themeRealtime;
+    select.disabled = false;
     toggle.classList.toggle('active', themeRealtime);
     toggle.setAttribute('aria-pressed', themeRealtime ? 'true' : 'false');
     status.textContent = themeRealtime ? (themeRealtimeStatus || '今日实时 · 正在连接') : '历史收盘 · 已归档';
@@ -465,6 +461,7 @@
     if (themeRealtime) return;
     themeArchiveDay = currentDay;
     themeRealtime = true;
+    if ($('dateSel')) $('dateSel').value = SECTOR_TODAY_VALUE;
     themeRealtimeStatus = '今日实时 · 正在连接';
     syncThemeModeControls(activeThemeView());
     refreshThemeRealtime();
@@ -739,7 +736,9 @@
   $('dateSel').addEventListener('change', function () {
     if (themeRealtime) stopThemeRealtime(false);
     if (this.value === SECTOR_TODAY_VALUE) {
-      if (currentView === 'sector') {
+      if (currentView === 'theme') {
+        startThemeRealtime();
+      } else if (currentView === 'sector') {
         sectorForceHistory = false; sectorForceRealtime = true; sectorRealtime = true; render();
       } else {
         this.value = currentDay;
@@ -823,6 +822,7 @@
   document.addEventListener('change', function (ev) {
     if (!ev.target || ev.target.id !== 'themeDateSel') return;
     var date = ev.target.value;
+    if (date === SECTOR_TODAY_VALUE) { startThemeRealtime(); return; }
     if (themeRealtime) stopThemeRealtime(false);
     $('dateSel').value = date;
     loadDay(date);
