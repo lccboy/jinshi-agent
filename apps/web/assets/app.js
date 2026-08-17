@@ -7,6 +7,8 @@
   var DETAIL_CACHE = {};  // 日期 → detail 视图（懒加载）
   var currentDay = null;  // 当前日期（'latest' 或 'YYYY-MM-DD'）
   var currentView = 'signal';
+  var selectedThemeId = null;
+  var selectedSectorId = null;
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -167,75 +169,100 @@
       '<div class="grid2">' + mfCard + lrCard + '</div>';
   }
 
-  /* 题材库：全量 248 题材 → 概念标签 → 成分股展开（懒加载） */
+  /* 题材库：参考金十题材库的左列表 / 中详情 / 右直播三栏布局。 */
   function vTheme(view) {
-    loadLib('themes.json').then(function () { renderThemeList(view); });
-    var focus = focusTag && focusTag.type === 'theme' ? LIBS.themes[focusTag.id].name : '';
-    return card('📚 题材库 · 全量', '题材 → 概念 → 成分股（按成分数排序，点击展开）', 
-      '<input id="themeSearch" class="lib-search" placeholder="🔍 搜索题材…" value="' + esc(focus || '') + '">' +
-      '<div id="themeList" class="lib-list"><div class="muted" style="padding:12px">加载中…</div></div>');
+    Promise.all([loadLib('themes.json'), loadExpandLibs()]).then(function () { renderThemeWorkbench(view); });
+    return '<div class="theme-workbench">' +
+      '<aside class="theme-sidebar"><div class="panel-brand"><strong>金十题材库</strong><span id="themeMeta">加载中…</span></div>' +
+      '<div class="panel-search"><input id="themeSearch" placeholder="搜索题材…"></div>' +
+      '<div class="panel-sort"><span class="active">📊 综合得分</span><span>🔥 成分数</span></div>' +
+      '<div id="themeList" class="theme-nav-list"><div class="loading">加载中…</div></div></aside>' +
+      '<section class="theme-detail"><div class="detail-bar"><h1 id="themeTitle">🏆 金十题材库</h1><span id="themeCount"></span></div>' +
+      '<div id="themeContent" class="detail-content"><div class="empty-state">点击左侧题材查看详情</div></div></section>' +
+      '<aside class="theme-live"><div class="live-panel-title"><span class="live-dot"></span>实时直播播报</div>' +
+      '<div id="themeLiveList" class="live-feed"></div></aside></div>';
   }
 
-  function renderThemeList(view) {
+  function renderThemeWorkbench(view) {
     var kw = ($('themeSearch') ? $('themeSearch').value : '').trim();
     var themes = LIBS.themes || {};
     var ids = Object.keys(themes).filter(function (t) { return !kw || (themes[t].name || '').indexOf(kw) >= 0; });
     ids.sort(function (a, b) { return (themes[b].stock_count || 0) - (themes[a].stock_count || 0); });
-    var focus = focusTag && focusTag.type === 'theme' ? focusTag.id : null;
+    if (focusTag && focusTag.type === 'theme') selectedThemeId = focusTag.id;
+    if (!selectedThemeId || !themes[selectedThemeId]) selectedThemeId = ids[0] || null;
+    if ($('themeMeta')) $('themeMeta').textContent = Object.keys(themes).length + ' 个题材 · 默认暗黑';
     var html = ids.map(function (tid) {
       var t = themes[tid] || {};
-      var concepts = (t.sub_concepts || []).slice(0, 4).map(function (c) { return '<span class="badge b-src">' + esc(c) + '</span>'; }).join('');
-      var hl = tid === focus ? ' hl' : '';
-      return '<div class="theme-row' + hl + '" data-tid="' + esc(tid) + '">' +
-        '<div class="theme-head"><span class="theme-name">' + esc(t.name || tid) + '</span>' +
-        '<span class="badge b-boards">' + (t.stock_count || 0) + ' 只</span>' +
-        (t.hot ? '<span class="badge b-star">🔥 ' + t.hot + '</span>' : '') +
-        '<span class="theme-expand">▸</span></div>' +
-        '<div class="theme-concepts">' + concepts + '</div>' +
-        '<div class="theme-members"></div></div>';
+      return '<div class="theme-nav-row' + (tid === selectedThemeId ? ' active' : '') + '" data-tid="' + esc(tid) + '">' +
+        '<span class="expand-icon">›</span><span class="theme-name">' + esc(t.name || tid) + '</span>' +
+        '<span class="theme-stock-count">' + (t.stock_count || 0) + '只</span>' +
+        '<span class="theme-hot">' + (t.hot ? '🔥' + t.hot : '') + '</span></div>';
     }).join('');
     $('themeList').innerHTML = ids.length ? html : '<div class="muted" style="padding:12px">无匹配题材</div>';
-    document.querySelectorAll('.theme-row').forEach(function (row) {
-      row.addEventListener('click', function () { toggleThemeExpand(row); });
-    });
+    renderThemeDetail(view, selectedThemeId);
+    renderThemeLive(view);
   }
 
-  function toggleThemeExpand(row) {
-    var box = row.querySelector('.theme-members');
-    var exp = row.querySelector('.theme-expand');
-    if (box.innerHTML) { box.innerHTML = ''; exp.textContent = '▸'; return; }
-    exp.textContent = '▾';
-    box.innerHTML = '<div class="muted">加载成分股…</div>';
-    loadExpandLibs().then(function () {
-      var sids = (LIBS.theme_stocks || {})[row.dataset.tid] || [];
-      box.innerHTML = memberTable(sids.slice(0, 200), sids.length);
-    });
+  function renderThemeDetail(view, tid) {
+    if (!tid || !$('themeContent')) return;
+    var t = (LIBS.themes || {})[tid] || {};
+    var concepts = t.sub_concepts || [];
+    var sids = (LIBS.theme_stocks || {})[tid] || [];
+    $('themeTitle').textContent = '🏆 ' + (t.name || tid);
+    $('themeCount').textContent = sids.length + ' 只成分股';
+    var chips = concepts.map(function (c) { return '<span class="concept-pill">' + esc(c) + '</span>'; }).join('');
+    $('themeContent').innerHTML = '<section class="theme-summary"><h2>' + esc(t.name || tid) + '</h2>' +
+      '<p>题材代码 ' + esc(tid) + ' · ' + concepts.length + ' 个细分概念 · ' + sids.length + ' 只成分股</p></section>' +
+      '<section class="detail-section"><h3>细分概念</h3><div class="concept-cloud">' + (chips || '<span class="muted">暂无细分概念</span>') + '</div></section>' +
+      '<section class="detail-section"><h3>成分股</h3><div class="theme-member-table">' + memberTable(sids.slice(0, 200), sids.length) + '</div></section>';
   }
 
-  /* 板块强度：板块排行（点击展开成分股）+ 资金流 */
+  function renderThemeLive(view) {
+    if (!$('themeLiveList')) return;
+    var events = (view.events || []).slice(0, 80);
+    $('themeLiveList').innerHTML = events.map(function (e) {
+      return '<div class="live-feed-item"><div><span class="live-event-badge">' + esc(EVT_META[e.type] || e.type || '动态') + '</span>' +
+        '<span class="live-time">' + esc(String(e.ts || '').slice(11, 16)) + '</span></div>' +
+        '<p>' + (e.stock_id ? stk(e.stock_id, code6(e.stock_id)) + ' ' : '') + esc(e.detail || '') + '</p></div>';
+    }).join('') || '<div class="muted" style="padding:14px">暂无实时播报</div>';
+  }
+
+  /* 板块强度：参考 KPL 左侧排行 + 右侧详情格局。 */
   function vSector(view) {
-    loadLib('sectors.json');
-    var secs = (view.sectors || []).map(function (s, i) {
-      var hl = focusTag && focusTag.type === 'sector' && focusTag.id === s.id ? ' class="sec-row hl"' : ' class="sec-row"';
-      return '<tr' + hl + ' data-sid="' + esc(s.id) + '"><td>' + (i + 1) + '</td><td class="l">' + esc(s.name) + '</td>' +
-        '<td class="up">' + fmtMoney(s.strength) + '</td><td class="' + cls(s.change) + '">' + fmtPct(s.change) + '</td>' +
-        '<td class="' + cls(s.mainNet) + '">' + fmtMoney(s.mainNet) + '</td>' +
-        (s.limit_up_count != null ? '<td>' + s.limit_up_count + '</td>' : '') + '<td class="muted">▸</td></tr>' +
-        '<tr class="sec-members" data-sid="' + esc(s.id) + '" style="display:none"><td colspan="8" class="l"></td></tr>';
-    }).join('');
-    var cols = '<th>#</th><th class="l">板块</th><th>强度</th><th>涨跌%</th><th>主力净额</th>' +
-      ((view.sectors || [])[0] && view.sectors[0].limit_up_count != null ? '<th>涨停</th>' : '') + '<th></th>';
-    var secTable = '<div class="tblwrap"><table><thead><tr>' + cols + '</tr></thead><tbody>' +
-      (secs || '<tr><td colspan="6" class="muted">暂无板块数据</td></tr>') + '</tbody></table></div>';
+    Promise.all([loadLib('sectors.json'), loadExpandLibs()]).then(function () { renderSectorWorkbench(view); });
+    return '<div class="sector-workbench"><aside class="sector-sidebar"><div class="sector-side-head"><div><span>板块强度排行</span><small>' + esc(currentDay) + '</small></div>' +
+      '<div class="sector-date"><b>◀</b><span>' + esc(currentDay) + '</span><b>▶</b></div></div>' +
+      '<div class="panel-search"><input id="sectorSearch" placeholder="搜索板块…"></div><div id="sectorList" class="sector-rank-list"></div></aside>' +
+      '<section class="sector-detail"><div id="sectorDetail"></div></section></div>';
+  }
 
-    var mf = (view.money_flow || []).map(function (f, i) {
-      return '<tr><td>' + (i + 1) + '</td><td class="l">' + esc(f.name) + '</td><td class="' + cls(f.main) + '">' + fmtMoney(f.main) + '</td><td class="' + cls(f.main_pct) + '">' + fmtPct(f.main_pct) + '</td></tr>';
-    }).join('');
-    var mfTable = '<div class="tblwrap"><table><thead><tr><th>#</th><th class="l">板块</th><th>主力净流入</th><th>占比</th></tr></thead><tbody>' +
-      (mf || '<tr><td colspan="4" class="muted">暂无</td></tr>') + '</tbody></table></div>';
+  function renderSectorWorkbench(view) {
+    var kw = ($('sectorSearch') ? $('sectorSearch').value : '').trim();
+    var sectors = (view.sectors || []).filter(function (s) { return !kw || (s.name || '').indexOf(kw) >= 0; });
+    if (focusTag && focusTag.type === 'sector') selectedSectorId = focusTag.id;
+    if (!selectedSectorId || !(view.sectors || []).some(function (s) { return s.id === selectedSectorId; })) selectedSectorId = sectors[0] && sectors[0].id;
+    $('sectorList').innerHTML = sectors.map(function (s, i) {
+      return '<div class="sector-rank-row' + (s.id === selectedSectorId ? ' active' : '') + '" data-sid="' + esc(s.id) + '">' +
+        '<span class="rank' + (i < 3 ? ' top' : '') + '">' + (i + 1) + '</span><div class="sector-rank-info"><strong>' + esc(s.name) + '</strong>' +
+        '<small>' + (s.limit_up_count || 0) + ' 涨停 · ' + fmtMoney(s.mainNet) + ' 主力</small></div>' +
+        '<div class="sector-rank-num"><b class="' + cls(s.change) + '">' + fmtPct(s.change) + '</b><span>' + fmtMoney(s.strength) + '</span></div></div>';
+    }).join('') || '<div class="muted" style="padding:14px">无匹配板块</div>';
+    renderSectorDetail(view, selectedSectorId);
+  }
 
-    return '<div class="grid2">' + card('📊 板块强度排行', currentDay + ' · 点击板块展开成分股', secTable, true) +
-      card('💧 板块资金流', '东财主力净流入', mfTable, true) + '</div>';
+  function renderSectorDetail(view, sid) {
+    if (!sid || !$('sectorDetail')) return;
+    var s = (view.sectors || []).filter(function (x) { return x.id === sid; })[0] || {};
+    var def = (LIBS.sectors || {})[sid] || {};
+    var subs = def.children || def.sub_sectors || [];
+    var subHtml = subs.map(function (sub) { return '<span class="sector-sub-chip">' + esc(sub.name || sub) + '</span>'; }).join('');
+    var sids = sectorMembers(sid);
+    $('sectorDetail').innerHTML = '<div class="sector-detail-head"><h1>' + esc(s.name || sid) + ' <small>(' + esc(sid) + ')</small></h1>' +
+      '<p>强度 ' + fmtMoney(s.strength) + ' · 涨跌 <span class="' + cls(s.change) + '">' + fmtPct(s.change) + '</span> · 主力净额 ' + fmtMoney(s.mainNet) + ' · 涨停 ' + (s.limit_up_count || 0) + '</p></div>' +
+      '<div class="sector-chart-empty"><div class="chart-legend"><span>■ 成交额</span><span>━ 价格</span></div><span>当前日视图暂无板块分时序列</span></div>' +
+      '<div class="sector-subbar"><label>子板块</label>' + (subHtml || '<span class="muted">（无子板块）</span>') + '</div>' +
+      '<div class="sector-filterbar"><button class="active">全部 <span>' + sids.length + '</span></button><button>涨停</button><button>上涨</button><button>下跌</button></div>' +
+      '<div class="sector-stock-table">' + memberTable(sids.slice(0, 300), sids.length) + '</div>';
   }
 
   /* 策略模型：命中 + 买点 */
@@ -337,6 +364,18 @@
   document.addEventListener('click', function (ev) {
     var chip = ev.target.closest ? ev.target.closest('.tag-chip') : null;
     if (chip) { ev.stopPropagation(); goTag(chip.dataset.go, chip.dataset.id); return; }
+    var themeNav = ev.target.closest ? ev.target.closest('.theme-nav-row') : null;
+    if (themeNav) {
+      selectedThemeId = themeNav.dataset.tid;
+      renderThemeWorkbench(CACHE[currentDay]);
+      return;
+    }
+    var sectorRank = ev.target.closest ? ev.target.closest('.sector-rank-row') : null;
+    if (sectorRank) {
+      selectedSectorId = sectorRank.dataset.sid;
+      renderSectorWorkbench(CACHE[currentDay]);
+      return;
+    }
     var secRow = ev.target.closest ? ev.target.closest('.sec-row') : null;
     if (secRow) { toggleSectorExpand(secRow); return; }
     var btn = ev.target.closest ? ev.target.closest('.reason-pop') : null;
@@ -344,7 +383,8 @@
     if (!ev.target.closest || !ev.target.closest('#popup')) $('popup').style.display = 'none';
   });
   document.addEventListener('input', function (ev) {
-    if (ev.target && ev.target.id === 'themeSearch') renderThemeList(CACHE[currentDay]);
+    if (ev.target && ev.target.id === 'themeSearch') renderThemeWorkbench(CACHE[currentDay]);
+    if (ev.target && ev.target.id === 'sectorSearch') renderSectorWorkbench(CACHE[currentDay]);
   });
   document.addEventListener('keydown', function (ev) { if (ev.key === 'Escape') $('popup').style.display = 'none'; });
 
