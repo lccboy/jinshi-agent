@@ -9,6 +9,7 @@ from services.collector.strategy_models import (
     m_golden_vol,
     m_ma_momentum,
     m_multi_factor,
+    m_perfect_ten,
     m_reversal,
 )
 
@@ -89,6 +90,57 @@ def test_golden_vol_hit():
     bars = make_bars(closes, vols=vols, opens=opens, highs=highs, lows=lows)
     hit, score, detail = m_golden_vol(bars, {})
     assert hit is True, detail
+
+
+def _golden_vol_bars():
+    """21 根：整体上行，末 3 根专门构造（n-3 光头光脚放量 250，n-2 缩量 200，n-1 放量 250 但非光头光脚）。"""
+    n = 21
+    closes = [10.0 + 0.04 * i for i in range(n)]
+    # 覆盖末 3 根（index 18/19/20）
+    closes[18], closes[19], closes[20] = 11.2, 10.6, 11.2  # n-3 高位，n-2 回踩，n-1 收回
+    opens = [c - 0.02 for c in closes]
+    highs = [c + 0.05 for c in closes]
+    lows = [c - 0.05 for c in closes]
+    vols = [100.0 + i * 8 for i in range(n)]
+    # n-3：光头光脚阳线 → BUYA == VOL == 250（3 日峰值）
+    opens[18], lows[18], closes[18], highs[18], vols[18] = 10.9, 10.9, 11.2, 11.2, 250.0
+    # n-2：缩量回踩（BUYA 约 < 200）
+    opens[19], closes[19], vols[19] = 11.1, 10.6, 200.0
+    # n-1：放量收回，非光头光脚（BUYA < 250），vol 250 > 200×1.2
+    opens[20], highs[20], closes[20], lows[20], vols[20] = 11.0, 11.4, 11.2, 10.9, 250.0
+    return make_bars(closes, vols=vols, opens=opens, highs=highs, lows=lows)
+
+
+def test_golden_vol_ctx_vol_mult_blocks():
+    """ctx.vol_mult 必须真正生效：3.0 倍量门槛 → 250 非 200×3 → 不命中。"""
+    bars = _golden_vol_bars()
+    hit, _, detail = m_golden_vol(bars, {"vol_mult": 3.0})
+    assert hit is False, detail
+
+
+def test_golden_vol_ctx_window():
+    """ctx.window 必须真正生效：window=1 只看当日 BUYA → 当日非峰值 → 不命中（window=3 时命中）。"""
+    bars = _golden_vol_bars()
+    hit3, _, d3 = m_golden_vol(bars, {"window": 3})
+    assert hit3 is True, d3
+    hit1, _, d1 = m_golden_vol(bars, {"window": 1})
+    assert hit1 is False, d1
+
+
+def test_perfect_ten_hit_with_min7():
+    """⑦ 十全十美 min_conditions=7（无 L2 数据，仅 OHLCV 7 条件）→ 全部满足应命中。"""
+    closes = [10.0 + 0.05 * (i % 2) for i in range(30)]  # 30 根震荡
+    closes[29] = 9.95  # 小跌 → RSI12 的 loss>0，RSI6(急涨段)=100 > RSI12
+    closes += [9.95 + 0.28 * j for j in range(1, 12)]  # 11 根急涨收尾
+    n = len(closes)
+    vols = [800_000 + i * 20_000 for i in range(n)]  # 递增放量
+    opens = [c - 0.02 for c in closes]
+    highs = [c + 0.01 for c in closes]  # 收盘接近最高 → no_chase 成立
+    lows = [c - 0.05 for c in closes]
+    bars = make_bars(closes, vols=vols, opens=opens, highs=highs, lows=lows)
+    hit, score, detail = m_perfect_ten(bars, {"min_conditions": 7})
+    assert hit is True, detail
+    assert score > 0
 
 
 def test_models_registry_complete():

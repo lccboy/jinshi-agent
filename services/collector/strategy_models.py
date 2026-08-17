@@ -247,11 +247,14 @@ def m_perfect_ten(bars, ctx):
 
 
 def m_golden_vol(bars, ctx):
-    """⑧ 金量买入：通达信公式转化（口径不可改，见 STRATEGY_MODEL §9）。"""
+    """⑧ 金量买入：通达信公式转化（口径不可改，见 STRATEGY_MODEL §9）。
+    参数 window/vol_mult 从 ctx 读取（由 strategy_engine 注入 config 值），缺省回落默认值。"""
     o, h, l, c, v = _series(bars)
     if len(c) < 21:
         return False, 0, {"reason": "历史不足"}
-    hit, d = golden_vol_hit(o, h, l, c, v)
+    window = ctx.get("window", 3)
+    vol_mult = ctx.get("vol_mult", 1.2)
+    hit, d = golden_vol_hit(o, h, l, c, v, window=window, vol_mult=vol_mult)
     if not hit:
         return False, 0, d
     score = 40 + (20 if d["ma20_up"] else 0) + (20 if d["net_in"] else 0) + (20 if d["vol_mult_ok"] else 0)

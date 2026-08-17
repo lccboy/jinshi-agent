@@ -1,41 +1,113 @@
 {
   "version": "1.0",
-  "data": { "vipdoc": "H:\\MPV1.240322\\Tdx MPV V1.24++\\vipdoc", "gbbq": true, "rs_index": "SH000001" },
   "models": {
-    "reversal": { "name": "①低吸反转", "enabled": true, "family": "reversal" },
-    "breakout": { "name": "②横盘突破", "enabled": true, "family": "breakout" },
-    "weekly": { "name": "③周线堆量", "enabled": true, "family": "trend" },
-    "dwm": { "name": "④日周月堆量主升共振", "enabled": true, "family": "trend" },
-    "lowstart": { "name": "⑤低位启动", "enabled": true, "family": "reversal" },
-    "volbrk": { "name": "⑥突破放量", "enabled": true, "family": "breakout" },
-    "perfect_ten": { "name": "⑦十全十美", "enabled": true, "family": "money", "params": { "min_conditions": 11, "note": "min_conditions=11 需 MMS/MMM/主力等 L2 数据补全（当前代码仅 7 条件，模型暂不可命中；数据补全前如需启用请调为 7）" } },
-    "golden_vol": { "name": "⑧金量买入", "enabled": true, "family": "money", "params": { "window": 3, "vol_mult": 1.2 } },
-    "hub_breakout": { "name": "⑨中枢突破", "enabled": true, "family": "breakout" },
-    "div_reversal": { "name": "⑩背驰反转", "enabled": true, "family": "reversal" },
-    "ma_momentum": { "name": "⑪多头排列", "enabled": true, "family": "trend" },
-    "bottom_rev": { "name": "⑫底部起涨", "enabled": true, "family": "reversal" },
-    "multi_factor": { "name": "⑬多因共振", "enabled": true, "family": "trend" },
-    "sub_low": { "name": "⑭低吸型", "enabled": true, "family": "sub" },
-    "sub_trend_vol": { "name": "⑮趋势放量型", "enabled": true, "family": "sub" },
-    "sub_breakout": { "name": "⑯突破型", "enabled": true, "family": "sub" },
-    "sub_main": { "name": "⑰主升型", "enabled": true, "family": "sub" }
-  },
-  "buy_point": {
-    "filter": { "min_rr": 3.0, "max_stop_pct": 4 },
-    "weights": { "bias": 30, "chg": 12, "vol": 13, "stop_dist": 18, "rr": 20, "close_pos": 4, "cross_family": 12 },
-    "bell_ranges": {
-      "bias5": [-0.005, 0.025, -0.04, 0.07],
-      "bias10": [0, 0.045, -0.03, 0.10],
-      "chg": [0.01, 0.05, -0.03, 0.098],
-      "vol": [1.2, 2.6, 0.7, 5.0],
-      "rr": [3, 18, 1.2, 40]
+    "reversal": {
+      "name": "①低吸反转",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "breakout": {
+      "name": "②横盘突破",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "weekly": {
+      "name": "③周线堆量",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "dwm": {
+      "name": "④日周月堆量主升共振",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "lowstart": {
+      "name": "⑤低位启动",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "volbrk": {
+      "name": "⑥突破放量",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "perfect_ten": {
+      "name": "⑦十全十美",
+      "enabled": true,
+      "family": "",
+      "params": {
+        "min_conditions": 7,
+        "note": "min_conditions=7 仅用 OHLCV 7 条件（无 L2 数据）；若后续接入 MMS/MMM/主力等 L2 数据，可调回 11"
+      }
+    },
+    "golden_vol": {
+      "name": "⑧金量买入",
+      "enabled": true,
+      "family": "",
+      "params": {
+        "window": 3,
+        "vol_mult": 1.2
+      }
+    },
+    "hub_breakout": {
+      "name": "⑨中枢突破",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "div_reversal": {
+      "name": "⑩背驰反转",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "ma_momentum": {
+      "name": "⑪多头排列",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "bottom_rev": {
+      "name": "⑫底部起涨",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "multi_factor": {
+      "name": "⑬多因共振",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "sub_low": {
+      "name": "⑭低吸型",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "sub_trend_vol": {
+      "name": "⑮趋势放量型",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "sub_breakout": {
+      "name": "⑯突破型",
+      "enabled": true,
+      "family": "",
+      "params": {}
+    },
+    "sub_main": {
+      "name": "⑰主升型",
+      "enabled": true,
+      "family": "",
+      "params": {}
     }
-  },
-  "stacking": {
-    "enabled": true,
-    "weights": { "sector_strength": 25, "money_flow": 25, "leading_reason": 20 },
-    "thresholds": { "sector_strength_min": 4000, "money_flow_rank_top": 30, "leading_reason_min_zt": 0 },
-    "stars": { "silver": 3, "gold": 4 }
-  },
-  "alert_pool": { "top_n": 30, "min_score": 60 }
+  }
 }

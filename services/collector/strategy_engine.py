@@ -189,6 +189,10 @@ def run_strategy(date_str, kline_dir, out_root, config_path="config/strategy.jso
         ctx = {"code": sid[2:], "rs20": stock_ret20 - index_ret20}
         if "perfect_ten" in cfg.get("models", {}):
             ctx["min_conditions"] = cfg["models"]["perfect_ten"].get("params", {}).get("min_conditions", 7)
+        if "golden_vol" in cfg.get("models", {}):
+            gv_params = cfg["models"]["golden_vol"].get("params", {})
+            ctx["window"] = gv_params.get("window", 3)
+            ctx["vol_mult"] = gv_params.get("vol_mult", 1.2)
 
         hits = {}
         for mid in enabled:
