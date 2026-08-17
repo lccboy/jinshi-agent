@@ -86,6 +86,19 @@ def test_build_day_view_includes_stock_name():
     assert view["limitup"][0]["name"] == "蓝晓科技"
 
 
+def test_build_day_view_counts_daily_limitups_by_theme():
+    facts = {
+        "limitup": {"SZ300487": {}, "SH600000": {}},
+        "theme_stocks": {
+            "9": ["SZ300487", "SH600000", "SH600519"],
+            "13": ["SH600519"],
+        },
+    }
+    view = build_day_view("2026-08-14", facts)
+    assert view["theme_limitup"]["9"] == ["SH600000", "SZ300487"]
+    assert view["theme_limitup"]["13"] == []
+
+
 def test_build_day_view_skips_missing_sections():
     view = build_day_view("2026-08-14", {})
     assert view["date"] == "2026-08-14"

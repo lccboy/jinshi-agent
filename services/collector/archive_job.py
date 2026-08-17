@@ -70,6 +70,11 @@ def build_day_view(date_str, facts):
                                                "first_time", "seal_amount") if k in e}}
         for sid, e in sorted(limitup.items(), key=lambda kv: _board_height(kv[1].get("boards")), reverse=True)
     ]
+    limitup_ids = set(limitup)
+    view["theme_limitup"] = {
+        str(tid): sorted(limitup_ids.intersection(members or []))
+        for tid, members in (facts.get("theme_stocks") or {}).items()
+    }
 
     view["ladder"] = facts.get("ladder") or {}
 
@@ -261,6 +266,10 @@ def archive_day(date_str, facts_dir, web_dir, intraday_dir, archive_dir, publish
         with open(stocks_path, encoding="utf-8") as fh:
             stocks = json.load(fh)
         facts["stock_names"] = {sid: rec.get("name", sid) for sid, rec in stocks.items()}
+    theme_stocks_path = os.path.join(os.path.dirname(facts_dir), "normalized", "theme_stocks.json")
+    if os.path.exists(theme_stocks_path):
+        with open(theme_stocks_path, encoding="utf-8") as fh:
+            facts["theme_stocks"] = json.load(fh)
     view = build_day_view(date_str, facts)
     paths = write_day_view(date_str, view, web_dir, publish_latest=publish_latest)
     paths += write_detail_view(date_str, build_detail_view(date_str, facts), web_dir)

@@ -17,3 +17,13 @@ def test_theme_and_sector_reference_layout_hooks_exist():
     for marker in ("theme-workbench", "theme-sidebar", "theme-detail", "theme-live",
                    "sector-workbench", "sector-sidebar", "sector-detail", "sector-stock-table"):
         assert marker in js
+
+
+def test_theme_detail_uses_original_three_column_concept_hierarchy():
+    js = (WEB / "assets" / "app.js").read_text(encoding="utf-8")
+    css = (WEB / "assets" / "app.css").read_text(encoding="utf-8")
+    assert "当日涨停数排序" in js
+    assert "theme_limitup" in js
+    for marker in ("concept-table", "td-l1", "td-l2", "td-stocks", "stock-pill", "theme-stock-grid"):
+        assert marker in js
+        assert "." + marker in css
