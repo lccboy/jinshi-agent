@@ -27,4 +27,7 @@ Thumbs.db
 .idea/
 .vscode/
 
+# 工作区记忆（不入库）
+.workbuddy/
+
 docs/screenshots/

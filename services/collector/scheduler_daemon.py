@@ -54,6 +54,53 @@ def day_statuses(store, date_str):
             for stage in ("premarket", "intraday", "postmarket", "archive")}
 
 
+RETRY_LIMIT = 3  # 与 due_stages 的 attempt_count 上限一致；达到后停止重试并升级告警
+
+
+def pending_escalations(date_str, statuses, alerts_dir):
+    """attempt_count 达到上限且仍失败、且当日未告警过的阶段 → 需升级告警。
+
+    - 纯函数（TDD）：只返回清单，不写文件
+    - 兼容历史脏数据（attempt_count 远超上限，如 08-17 的 592 次）同样触发
+    """
+    out = []
+    for stage in ("premarket", "intraday", "postmarket", "archive"):
+        raw = statuses.get(stage)
+        value = raw if isinstance(raw, dict) else {"status": raw, "attempt_count": 0}
+        if value.get("status") != "failed":
+            continue
+        if value.get("attempt_count", 0) < RETRY_LIMIT:
+            continue
+        alert_path = Path(alerts_dir) / f"{date_str}_{stage}.json"
+        if alert_path.exists():
+            continue
+        out.append({"stage": stage, "attempts": value["attempt_count"],
+                    "updated_at": value.get("updated_at"), "date": date_str})
+    return out
+
+
+def write_escalation(date_str, entry, alerts_dir, log_path=None):
+    """写升级告警文件（幂等：已存在不覆盖）；返回写入路径或 None。"""
+    alerts_dir = Path(alerts_dir)
+    alerts_dir.mkdir(parents=True, exist_ok=True)
+    alert_path = alerts_dir / f"{date_str}_{entry['stage']}.json"
+    if alert_path.exists():
+        return None
+    doc = {"date": date_str, "stage": entry["stage"], "attempts": entry["attempts"],
+           "last_failed_at": entry.get("updated_at"),
+           "escalated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+           "message": f"{date_str} {entry['stage']} 阶段失败 {entry['attempts']} 次达到重试上限，已停止自动重试，需人工介入"}
+    temp = alert_path.with_suffix(".tmp")
+    temp.write_text(json.dumps(doc, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temp, alert_path)
+    line = f"[ESCALATE] {date_str} {entry['stage']}: {doc['message']}"
+    if log_path:
+        with Path(log_path).open("a", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+    print(line, flush=True)
+    return str(alert_path)
+
+
 def rotate_log(path, max_bytes=10 * 1024 * 1024, keep=5):
     path = Path(path)
     if not path.exists() or path.stat().st_size <= max_bytes:
@@ -132,6 +179,10 @@ def main(argv=None):
                 rotate_log(log_path)
                 with log_path.open("a", encoding="utf-8") as log:
                     children[stage] = subprocess.Popen(command, cwd=root, stdout=log, stderr=subprocess.STDOUT)
+            # 失败升级告警：达到重试上限后停止盲重试，落盘 alerts/ 供人工/微信通知
+            alerts_dir = root / "data" / "runs" / "alerts"
+            for entry in pending_escalations(date_str, statuses, alerts_dir):
+                write_escalation(date_str, entry, alerts_dir, log_path=log_path)
         write_state(state_path, children, now)
         if args.once:
             return 0

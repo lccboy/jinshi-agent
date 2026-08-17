@@ -1,6 +1,7 @@
 import datetime as dt
 
-from services.collector.scheduler_daemon import due_stages, rotate_log, service_specs
+from services.collector.scheduler_daemon import (due_stages, pending_escalations, rotate_log,
+                                                 service_specs, write_escalation)
 
 
 def at(value):
@@ -52,3 +53,33 @@ def test_service_specs_bind_api_to_loopback(tmp_path):
     api = specs["api"]
     assert api["command"][-4:] == ["--host", "127.0.0.1", "--port", "8787"]
     assert specs["nginx"]["health"].endswith("/DSH/")
+
+
+def failed_state(count, updated="2026-08-17T15:20:00+08:00"):
+    return {"status": "failed", "attempt_count": count, "updated_at": updated}
+
+
+def test_escalate_when_attempt_limit_reached(tmp_path):
+    statuses = {"premarket": "success", "intraday": "success",
+                "postmarket": "success", "archive": failed_state(3)}
+    pending = pending_escalations("2026-08-17", statuses, tmp_path)
+    assert [(p["stage"], p["attempts"]) for p in pending] == [("archive", 3)]
+
+
+def test_no_escalation_below_limit(tmp_path):
+    statuses = {"premarket": "success", "intraday": "success",
+                "postmarket": "success", "archive": failed_state(2)}
+    assert pending_escalations("2026-08-17", statuses, tmp_path) == []
+
+
+def test_escalation_idempotent(tmp_path):
+    statuses = {"premarket": "success", "intraday": "success",
+                "postmarket": "success", "archive": failed_state(3)}
+    entry = pending_escalations("2026-08-17", statuses, tmp_path)[0]
+    write_escalation("2026-08-17", entry, tmp_path)
+    assert pending_escalations("2026-08-17", statuses, tmp_path) == []
+    # 幂等：再次写入不覆盖、不报错
+    write_escalation("2026-08-17", entry, tmp_path)
+    alert_files = list(tmp_path.glob("*.json"))
+    assert len(alert_files) == 1
+    assert alert_files[0].name == "2026-08-17_archive.json"
