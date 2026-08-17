@@ -214,6 +214,40 @@ def intraday_latest():
     return result
 
 
+def sector_realtime(plate_id):
+    """以最近 KPL 归属为基线，叠加腾讯最后一帧；不改写历史归档。"""
+    dirs = sorted(glob.glob(_path("intraday", "*")), reverse=True)
+    if not dirs or not plate_id:
+        return {"available": False, "plate_id": plate_id, "stocks": []}
+    date_str = os.path.basename(dirs[0])
+    ndjson = os.path.join(dirs[0], "snapshots.ndjson")
+    last = ""
+    if os.path.exists(ndjson):
+        with open(ndjson, encoding="utf-8") as fh:
+            for line in fh:
+                if line.strip(): last = line
+    snapshot = json.loads(last) if last else {}
+    quotes = snapshot.get("stocks") or {}
+    base_date = latest_date()
+    detail = load_json("web", f"day_{base_date}.sector.json") or {}
+    rows = []
+    for row in (detail.get("plates") or {}).get(plate_id, []):
+        item = dict(row)
+        quote = quotes.get(item.get("stock_id")) or {}
+        if quote:
+            item["price"] = quote.get("price", item.get("price"))
+            item["change"] = quote.get("change_pct", item.get("change"))
+            item["vol_ratio"] = quote.get("volRatio", item.get("vol_ratio"))
+            limit_price = float(quote.get("limit_up") or 0)
+            price = float(quote.get("price") or 0)
+            item["is_limit_up"] = bool(limit_price and price >= limit_price - 0.001)
+        rows.append(item)
+    return {"available": bool(last), "data_date": date_str, "ts": snapshot.get("ts"),
+            "plate_id": plate_id, "stock_count": len(rows),
+            "limit_up_count": sum(1 for r in rows if r.get("is_limit_up") or float(r.get("change") or 0) >= 9.8),
+            "up6_count": sum(1 for r in rows if float(r.get("change") or 0) >= 6), "stocks": rows}
+
+
 # ---------------- HTTP 服务 ----------------
 
 def ok(data, date_str, source):
@@ -265,6 +299,13 @@ def handle_api(path, query):
     if path == "/api/intraday/latest":
         data = intraday_latest()
         return ok(data, data.get("data_date"), "intraday"), 200
+
+    if path == "/api/sectors/realtime":
+        plate_id = (query.get("plate") or [""])[0]
+        if not re.match(r"^\d{6}$", plate_id):
+            return {"error": "plate required, e.g. ?plate=801001"}, 400
+        data = sector_realtime(plate_id)
+        return ok(data, data.get("data_date"), "kpl+tencent"), 200
 
     if path == "/api/agent/summary":
         # V0.4 Agent 聚合：一次返回当天信号摘要（涨停/策略/预警/事件/板块/资金流/个股名）

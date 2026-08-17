@@ -12,6 +12,8 @@ from services.collector.archive_job import (
     write_day_view,
     write_master_lib,
     promote_day_view,
+    build_kpl_sector_views,
+    update_sector_trend,
 )
 
 
@@ -246,3 +248,33 @@ def test_build_day_view_caps_large_pools():
     assert len(view["pools"]["pools"]["alert"]) == 30
     assert len(view["pools"]["pools"]["candidate"]) == 100
     assert next(iter(view["pools"]["pools"]["candidate"])) == "C149"
+
+
+def test_build_kpl_sector_views_keeps_reference_fields_and_children():
+    daily = {"sectors": [{"id": "801001", "name": "芯片", "strength": 8256, "change": 3.2,
+                           "volume": 1200, "mainNet": 209.5, "marketCap": 30000,
+                           "rank": 1, "zt": 41, "up6": 61, "n": 300}],
+             "sub": {"801001": [{"id": "801490", "name": "半导体设备", "strength": 4500}]}}
+    stocks = {"stocks": {"801001": [{"code": "300487", "name": "蓝晓科技", "price": 12.3,
+                                        "change": 10.01, "turnover": 8.2, "volume": 123000000,
+                                        "mainNet": 22000000, "volRatio": 1.8, "position": "一",
+                                        "netFlowRatio": 2.1, "boards": "首板", "pe1": "20.1",
+                                        "circMarketCap": 4560000000}],
+                           "801490": [{"code": "300487", "name": "蓝晓科技", "change": 10.01}]}}
+    sectors, detail = build_kpl_sector_views(daily, stocks)
+    assert sectors[0]["limit_up_count"] == 41 and sectors[0]["up6_count"] == 61
+    assert sectors[0]["stock_count"] == 300
+    assert sectors[0]["sub_sectors"][0] == {"id": "801490", "name": "半导体设备", "strength": 4500}
+    assert detail["plates"]["801001"][0]["stock_id"] == "SZ300487"
+    assert detail["plates"]["801001"][0]["circ_market_cap"] == 4560000000
+    assert detail["plates"]["801490"][0]["change"] == 10.01
+
+
+def test_update_sector_trend_keeps_latest_ten_trading_days():
+    idx = {"days": [{"date": f"2026-08-{day:02d}"} for day in range(1, 13)]}
+    views = {d["date"]: {"sectors": [{"id": "801001", "name": "芯片", "rank": 1,
+                                        "limit_up_count": int(d["date"][-2:])}]} for d in idx["days"]}
+    update_sector_trend(idx, views)
+    assert len(idx["sector_trend"]) == 10
+    assert idx["sector_trend"][0]["date"] == "2026-08-12"
+    assert idx["sector_trend"][0]["top"][0]["limit_up_count"] == 12

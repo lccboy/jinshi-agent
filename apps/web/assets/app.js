@@ -16,6 +16,12 @@
   var themeRealtimeView = null;
   var themeArchiveDay = null;
   var themeRealtimeStatus = '';
+  var SECTOR_INDEX = {};
+  var SECTOR_DETAIL = {};
+  var selectedSubSectorId = null;
+  var sectorFilter = 'all';
+  var sectorRealtime = false;
+  var sectorRealtimeTimer = null;
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -85,6 +91,7 @@
   /* ---------- 数据加载 ---------- */
   function loadIndex() {
     return fetchJSON('data/web/index.json').then(function (idx) {
+      SECTOR_INDEX = idx;
       DAYS = idx.days || [];
       var sel = $('dateSel');
       sel.innerHTML = '';
@@ -465,10 +472,16 @@
   /* 板块强度：参考 KPL 左侧排行 + 右侧详情格局。 */
   function vSector(view) {
     Promise.all([loadLib('sectors.json'), loadExpandLibs()]).then(function () { renderSectorWorkbench(view); });
-    return '<div class="sector-workbench"><aside class="sector-sidebar"><div class="sector-side-head"><div><span>板块强度排行</span><small>' + esc(currentDay) + '</small></div>' +
+    var trend = (SECTOR_INDEX.sector_trend || []).map(function (day) {
+      return '<div class="sector-trend-day"><b>' + esc(day.date.slice(5)) + '</b>' + (day.top || []).map(function (s) {
+        return '<span title="强度 ' + esc(s.strength) + '">' + esc(s.rank) + '. ' + esc(s.name) + ' <i>' + (s.limit_up_count || 0) + '</i></span>';
+      }).join('') + '</div>';
+    }).join('');
+    return '<div class="sector-shell"><details class="sector-trend"><summary>板块强度排序变化 <small>近 10 个交易日</small></summary><div class="sector-trend-grid">' + trend + '</div></details>' +
+      '<div class="sector-workbench"><aside class="sector-sidebar"><div class="sector-side-head"><div><span>板块强度排行</span><small>' + esc(currentDay) + '</small></div>' +
       '<div class="sector-date"><b>◀</b><span>' + esc(currentDay) + '</span><b>▶</b></div></div>' +
       '<div class="panel-search"><input id="sectorSearch" placeholder="搜索板块…"></div><div id="sectorList" class="sector-rank-list"></div></aside>' +
-      '<section class="sector-detail"><div id="sectorDetail"></div></section></div>';
+      '<section class="sector-detail"><div id="sectorDetail"></div></section></div></div>';
   }
 
   function renderSectorWorkbench(view) {
@@ -479,8 +492,8 @@
     $('sectorList').innerHTML = sectors.map(function (s, i) {
       return '<div class="sector-rank-row' + (s.id === selectedSectorId ? ' active' : '') + '" data-sid="' + esc(s.id) + '">' +
         '<span class="rank' + (i < 3 ? ' top' : '') + '">' + (i + 1) + '</span><div class="sector-rank-info"><strong>' + esc(s.name) + '</strong>' +
-        '<small>' + (s.limit_up_count || 0) + ' 涨停 · ' + fmtMoney(s.mainNet) + ' 主力</small></div>' +
-        '<div class="sector-rank-num"><b class="' + cls(s.change) + '">' + fmtPct(s.change) + '</b><span>' + fmtMoney(s.strength) + '</span></div></div>';
+        '<small><em>涨停 ' + (s.limit_up_count || 0) + '</em><em>&gt;6% ' + (s.up6_count || 0) + '</em> · ' + fmtMoney(s.mainNet) + ' · ' + (s.stock_count || 0) + '只</small></div>' +
+        '<div class="sector-rank-num"><b>' + esc(s.strength || 0) + '</b><span class="' + cls(s.change) + '">' + fmtPct(s.change) + '</span></div></div>';
     }).join('') || '<div class="muted" style="padding:14px">无匹配板块</div>';
     renderSectorDetail(view, selectedSectorId);
   }
@@ -488,16 +501,47 @@
   function renderSectorDetail(view, sid) {
     if (!sid || !$('sectorDetail')) return;
     var s = (view.sectors || []).filter(function (x) { return x.id === sid; })[0] || {};
-    var def = (LIBS.sectors || {})[sid] || {};
-    var subs = def.children || def.sub_sectors || [];
-    var subHtml = subs.map(function (sub) { return '<span class="sector-sub-chip">' + esc(sub.name || sub) + '</span>'; }).join('');
-    var sids = sectorMembers(sid);
+    var subs = s.sub_sectors || [];
+    var subHtml = '<button class="sector-sub-chip' + (!selectedSubSectorId ? ' active' : '') + '" data-subsid="">全部</button>' + subs.map(function (sub) { return '<button class="sector-sub-chip' + (selectedSubSectorId === sub.id ? ' active' : '') + '" data-subsid="' + esc(sub.id) + '">' + esc(sub.name) + ' ' + esc(sub.strength) + '</button>'; }).join('');
     $('sectorDetail').innerHTML = '<div class="sector-detail-head"><h1>' + esc(s.name || sid) + ' <small>(' + esc(sid) + ')</small></h1>' +
-      '<p>强度 ' + fmtMoney(s.strength) + ' · 涨跌 <span class="' + cls(s.change) + '">' + fmtPct(s.change) + '</span> · 主力净额 ' + fmtMoney(s.mainNet) + ' · 涨停 ' + (s.limit_up_count || 0) + '</p></div>' +
+      '<p>强度 ' + esc(s.strength || 0) + ' · 涨跌 <span class="' + cls(s.change) + '">' + fmtPct(s.change) + '</span> · 主力净额 ' + fmtMoney(s.mainNet) + ' · 成交额 ' + esc(s.volume || 0) + '亿 · 市值 ' + esc(s.marketCap || 0) + '亿 <button class="sector-live-btn' + (sectorRealtime ? ' active' : '') + '">' + (sectorRealtime ? '● 腾讯实时' : '○ 切换实时') + '</button></p></div>' +
       '<div class="sector-chart-empty"><div class="chart-legend"><span>■ 成交额</span><span>━ 价格</span></div><span>当前日视图暂无板块分时序列</span></div>' +
       '<div class="sector-subbar"><label>子板块</label>' + (subHtml || '<span class="muted">（无子板块）</span>') + '</div>' +
-      '<div class="sector-filterbar"><button class="active">全部 <span>' + sids.length + '</span></button><button>涨停</button><button>上涨</button><button>下跌</button></div>' +
-      '<div class="sector-stock-table">' + memberTable(sids.slice(0, 300), sids.length) + '</div>';
+      '<div class="sector-filterbar"><button data-sector-filter="all">全部</button><button data-sector-filter="zt">涨停</button><button data-sector-filter="up6">≥6%</button><button data-sector-filter="up0">0~6%</button><button data-sector-filter="dn">&lt;0%</button></div>' +
+      '<div id="sectorStockTable" class="sector-stock-table"><div class="muted">加载板块成分股…</div></div>';
+    loadSectorStocks(view, sid);
+  }
+
+  function loadSectorStocks(view, sid) {
+    var date = view.date || currentDay;
+    var done = function (detail) {
+      var reasons = {}; (view.limitup || []).forEach(function (x) { reasons[x.stock_id] = x.reason || ''; });
+      var rows = ((detail.plates || {})[selectedSubSectorId || sid] || []).map(function (x) { var r = Object.assign({}, x); r.reason = reasons[r.stock_id] || ''; return r; });
+      renderSectorStockTable(rows);
+    };
+    if (SECTOR_DETAIL[date]) return done(SECTOR_DETAIL[date]);
+    fetchJSON('data/web/day_' + date + '.sector.json').then(function (d) { SECTOR_DETAIL[date] = d; done(d); })
+      .catch(function () { renderSectorStockTable([]); });
+  }
+
+  function renderSectorStockTable(rows) {
+    var host = $('sectorStockTable'); if (!host) return;
+    var filtered = rows.filter(function (r) { var c = Number(r.change) || 0; return sectorFilter === 'all' || (sectorFilter === 'zt' && c >= 9.8) || (sectorFilter === 'up6' && c >= 6 && c < 9.8) || (sectorFilter === 'up0' && c >= 0 && c < 6) || (sectorFilter === 'dn' && c < 0); });
+    var body = filtered.map(function (r) { return '<tr class="' + ((Number(r.change) || 0) >= 9.8 ? 'row-zt' : '') + '"><td class="l">' + stk(r.stock_id, r.code) + '</td><td class="l">' + esc(r.name) + '</td><td>' + esc(r.position || '-') + '</td><td class="l">' + esc(r.reason || '-') + '</td><td class="' + cls(r.change) + '">' + fmtPct(r.change) + '</td><td>' + esc(r.price || '-') + '</td><td>' + esc(r.turnover || '-') + '%</td><td>' + fmtMoney(r.amount) + '</td><td class="' + cls(r.main_net) + '">' + fmtMoney(r.main_net) + '</td><td>' + esc(r.vol_ratio || '-') + '</td><td>' + esc(r.net_flow_ratio || '-') + '</td><td>' + esc(r.boards || '-') + '</td><td>' + esc(r.pe || '-') + '</td><td>' + fmtMoney(r.circ_market_cap) + '</td></tr>'; }).join('');
+    host.innerHTML = '<div class="tblwrap"><table><thead><tr><th class="l">代码</th><th class="l">名称</th><th>地位</th><th class="l">涨停原因</th><th>涨跌幅</th><th>现价</th><th>换手率</th><th>成交额</th><th>主力净额</th><th>量比</th><th>净流占比</th><th>连板</th><th>市盈率</th><th>流通市值</th></tr></thead><tbody>' + (body || '<tr><td colspan="14" class="muted">暂无成分股</td></tr>') + '</tbody></table></div>';
+    document.querySelectorAll('[data-sector-filter]').forEach(function (b) { b.classList.toggle('active', b.dataset.sectorFilter === sectorFilter); });
+  }
+
+  function refreshSectorRealtime() {
+    window.clearTimeout(sectorRealtimeTimer);
+    if (!sectorRealtime || !selectedSectorId) return;
+    var pid = selectedSubSectorId || selectedSectorId;
+    fetchJSON('api/sectors/realtime?plate=' + encodeURIComponent(pid), 'no-store').then(function (r) {
+      var data = r.data || r;
+      if (data.available) renderSectorStockTable(data.stocks || []);
+    }).catch(function () {}).then(function () {
+      if (sectorRealtime) sectorRealtimeTimer = window.setTimeout(refreshSectorRealtime, 5000);
+    });
   }
 
   /* 策略模型：命中 + 买点 */
@@ -656,7 +700,28 @@
     var sectorRank = ev.target.closest ? ev.target.closest('.sector-rank-row') : null;
     if (sectorRank) {
       selectedSectorId = sectorRank.dataset.sid;
+      selectedSubSectorId = null;
       renderSectorWorkbench(CACHE[currentDay]);
+      return;
+    }
+    var sectorSub = ev.target.closest ? ev.target.closest('.sector-sub-chip') : null;
+    if (sectorSub) {
+      selectedSubSectorId = sectorSub.dataset.subsid || null;
+      renderSectorDetail(CACHE[currentDay], selectedSectorId);
+      if (sectorRealtime) refreshSectorRealtime();
+      return;
+    }
+    var sectorFilterBtn = ev.target.closest ? ev.target.closest('[data-sector-filter]') : null;
+    if (sectorFilterBtn) {
+      sectorFilter = sectorFilterBtn.dataset.sectorFilter;
+      if (sectorRealtime) refreshSectorRealtime(); else loadSectorStocks(CACHE[currentDay], selectedSectorId);
+      return;
+    }
+    var sectorLiveBtn = ev.target.closest ? ev.target.closest('.sector-live-btn') : null;
+    if (sectorLiveBtn) {
+      sectorRealtime = !sectorRealtime;
+      renderSectorDetail(CACHE[currentDay], selectedSectorId);
+      if (sectorRealtime) refreshSectorRealtime(); else window.clearTimeout(sectorRealtimeTimer);
       return;
     }
     var secRow = ev.target.closest ? ev.target.closest('.sec-row') : null;

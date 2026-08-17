@@ -13,6 +13,8 @@ import re
 import shutil
 import tempfile
 
+from .normalize import stock_id
+
 # quotes 63 字段 → 页面展示列（DATA_MODEL §13.2）
 QUOTES_KEEP = ("price", "change", "turnover", "volume", "volRatio", "mainNet",
                "circMarketCap", "totalMarketCap")
@@ -58,7 +60,9 @@ def build_day_view(date_str, facts):
 
     sectors_fact = facts.get("sectors") or {}
     view["sectors"] = [
-        {"id": sid, **{k: sec.get(k) for k in ("name", "strength", "change", "mainNet", "limit_up_count", "boom_reason") if k in sec}}
+        {"id": sid, **{k: sec.get(k) for k in ("name", "strength", "change", "volume", "mainNet", "marketCap",
+                                                   "rank", "limit_up_count", "up6_count", "stock_count",
+                                                   "sub_sectors", "boom_reason") if k in sec}}
         for sid, sec in sorted(sectors_fact.items(), key=lambda kv: kv[1].get("strength", 0), reverse=True)
     ]
 
@@ -145,6 +149,76 @@ def build_detail_view(date_str, facts):
               "sourceCount": e.get("sourceCount", 0), "sources": e.get("sources", {})}
         for sid, e in limitup.items()
     }}
+
+
+def build_kpl_sector_views(daily, stocks_doc):
+    """KPL 每日板块/成分文件 → Web 板块摘要与懒加载详情。字段名保持 DATA_MODEL §4.4 口径。"""
+    sub_map = daily.get("sub") or daily.get("子板块映射") or {}
+    source_sectors = daily.get("sectors") or daily.get("板块排行") or []
+    sectors = []
+    aliases = {"id": "代码", "name": "名称", "strength": "强度", "change": "涨跌%",
+               "volume": "成交额_亿", "mainNet": "主力净额_亿", "marketCap": "市值_亿",
+               "rank": "排名", "zt": "涨停数", "up6": "大于6%", "n": "家数"}
+    for raw in source_sectors:
+        def val(key, default=0):
+            return raw.get(key, raw.get(aliases[key], default))
+        sid = str(val("id", ""))
+        children = [{"id": str(x.get("id", x.get("代码", ""))),
+                     "name": x.get("name", x.get("名称", "")),
+                     "strength": x.get("strength", x.get("强度", 0))}
+                    for x in sub_map.get(sid, [])]
+        sectors.append({"id": sid, "name": val("name", sid), "strength": val("strength"),
+                        "change": val("change"), "volume": val("volume"), "mainNet": val("mainNet"),
+                        "marketCap": val("marketCap"), "rank": val("rank"),
+                        "limit_up_count": val("zt"), "up6_count": val("up6"),
+                        "stock_count": val("n"), "sub_sectors": children})
+    sectors.sort(key=lambda x: (-float(x.get("strength") or 0), x["name"]))
+    for rank, sector in enumerate(sectors, 1):
+        sector["rank"] = rank
+
+    plates = {}
+    rows_by_plate = stocks_doc.get("stocks", stocks_doc) or {}
+    for pid, rows in rows_by_plate.items():
+        normalized = []
+        for row in rows or []:
+            code = str(row.get("code", row.get("代码", "")))
+            if not code:
+                continue
+            normalized.append({
+                "stock_id": stock_id(code), "code": code, "name": row.get("name", row.get("名称", code)),
+                "position": row.get("position", row.get("地位", "")),
+                "change": row.get("change", row.get("涨跌幅%", 0)), "price": row.get("price", row.get("现价", 0)),
+                "turnover": row.get("turnover", row.get("换手率%", 0)), "amount": row.get("volume", row.get("成交额", 0)),
+                "main_net": row.get("mainNet", row.get("主力净额", 0)), "vol_ratio": row.get("volRatio", row.get("量比", 0)),
+                "net_flow_ratio": row.get("netFlowRatio", row.get("净流占比", 0)),
+                "boards": row.get("boards", row.get("连板", "")), "pe": row.get("pe1", row.get("市盈率1", "")),
+                "circ_market_cap": row.get("circMarketCap", row.get("流通市值", 0)),
+            })
+        plates[str(pid)] = normalized
+    return sectors, {"plates": plates}
+
+
+def update_sector_trend(index, day_views):
+    """把最近 10 个交易日的板块前十写入 index，供首屏一次请求展示。"""
+    dates = sorted((d.get("date") for d in index.get("days", []) if d.get("date")), reverse=True)[:10]
+    trend = []
+    for date_str in dates:
+        sectors = (day_views.get(date_str) or {}).get("sectors", [])[:10]
+        trend.append({"date": date_str, "top": [
+            {k: s.get(k) for k in ("id", "name", "rank", "strength", "limit_up_count")} for s in sectors
+        ]})
+    index["sector_trend"] = trend
+    return index
+
+
+def write_sector_view(date_str, detail, out_dir):
+    raw = json.dumps({"date": date_str, **detail}, ensure_ascii=False).encode("utf-8")
+    path = os.path.join(out_dir, f"day_{date_str}.sector.json")
+    with open(path, "wb") as fh:
+        fh.write(raw)
+    with open(path + ".gz", "wb") as fh:
+        fh.write(gzip.compress(raw, compresslevel=6))
+    return [path, path + ".gz"]
 
 
 def write_detail_view(date_str, detail, out_dir):
@@ -237,6 +311,16 @@ def write_day_view(date_str, view, out_dir, publish_latest=True):
     if date_str not in dates:
         idx["days"].append({"date": date_str})
     idx["days"].sort(key=lambda d: d["date"], reverse=True)
+    day_views = {date_str: view}
+    for entry in idx["days"][:10]:
+        d = entry["date"]
+        if d in day_views:
+            continue
+        p = os.path.join(out_dir, f"day_{d}.json")
+        if os.path.exists(p):
+            with open(p, encoding="utf-8") as fh:
+                day_views[d] = json.load(fh)
+    update_sector_trend(idx, day_views)
     with open(index_path, "w", encoding="utf-8") as fh:
         json.dump(idx, fh, ensure_ascii=False, indent=2)
 
@@ -275,7 +359,7 @@ def read_facts(date_str, facts_dir):
     return facts
 
 
-def archive_day(date_str, facts_dir, web_dir, intraday_dir, archive_dir, publish_latest=True):
+def archive_day(date_str, facts_dir, web_dir, intraday_dir, archive_dir, publish_latest=True, kpl_output=None):
     """归档编排：facts → 视图层（day + detail + 索引 + master lib）→ intraday 移入 archive。返回 (view, paths)。"""
     facts = read_facts(date_str, facts_dir)
     stocks_path = os.path.join(os.path.dirname(facts_dir), "normalized", "stocks.json")
@@ -291,9 +375,30 @@ def archive_day(date_str, facts_dir, web_dir, intraday_dir, archive_dir, publish
     if os.path.exists(themes_path):
         with open(themes_path, encoding="utf-8") as fh:
             facts["themes"] = json.load(fh)
+    sector_detail = None
+    if kpl_output:
+        daily_path = os.path.join(kpl_output, f"kpl_{date_str}.json")
+        stocks_daily_path = os.path.join(kpl_output, f"kpl_{date_str}_stocks.json")
+        if os.path.exists(daily_path):
+            with open(daily_path, encoding="utf-8-sig") as fh:
+                daily = json.load(fh)
+            stocks_doc = {}
+            if os.path.exists(stocks_daily_path):
+                with open(stocks_daily_path, encoding="utf-8-sig") as fh:
+                    stocks_doc = json.load(fh)
+            kpl_sectors, sector_detail = build_kpl_sector_views(daily, stocks_doc)
+            facts["sectors"] = {s["id"]: {k: v for k, v in s.items() if k != "id"} for s in kpl_sectors}
+            # facts 只增不改：仅为缺失历史日补建规范板块事实，已有文件绝不覆盖。
+            fact_sector_path = os.path.join(facts_dir, date_str, "sectors.json")
+            if not os.path.exists(fact_sector_path):
+                os.makedirs(os.path.dirname(fact_sector_path), exist_ok=True)
+                with open(fact_sector_path, "w", encoding="utf-8") as fh:
+                    json.dump({"data_date": date_str, "sectors": facts["sectors"]}, fh, ensure_ascii=False, indent=2)
     view = build_day_view(date_str, facts)
     paths = write_day_view(date_str, view, web_dir, publish_latest=publish_latest)
     paths += write_detail_view(date_str, build_detail_view(date_str, facts), web_dir)
+    if sector_detail is not None:
+        paths += write_sector_view(date_str, sector_detail, web_dir)
     paths += [os.path.join(web_dir, n) for n in
               write_master_lib(os.path.join(os.path.dirname(facts_dir), "normalized"), web_dir)]
 
@@ -324,10 +429,11 @@ def main(argv=None):
     ap.add_argument("--archive", default="data/archive", help="归档目录（默认 data/archive）")
     ap.add_argument("--verify", action="store_true", help="输出体积校验（≤200KB raw / ≤80KB gz）")
     ap.add_argument("--stage-only", action="store_true", help="只生成历史日视图，不更新 day_latest.json")
+    ap.add_argument("--kpl-output", help="KPL 每日文件目录；用于补齐板块统计、子板块和成分股详情")
     args = ap.parse_args(argv)
 
     view, paths = archive_day(args.date, args.facts, args.web, args.intraday, args.archive,
-                              publish_latest=not args.stage_only)
+                              publish_latest=not args.stage_only, kpl_output=args.kpl_output)
     print(f"[OK] {args.date} 视图层已生成: day_{args.date}.json + .gz")
     if args.verify:
         ok, report = verify_view(view, paths[0], paths[1])
