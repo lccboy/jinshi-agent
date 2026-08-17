@@ -68,6 +68,15 @@ def test_theme_model_hits_use_chinese_names_and_group_live_feed_by_time():
     assert ".live-model-stock" in css
 
 
+def test_live_group_uses_compact_ranked_stock_rows():
+    js = (WEB / "assets" / "app.js").read_text(encoding="utf-8")
+    css = (WEB / "assets" / "app.css").read_text(encoding="utf-8")
+    for marker in ("live-group-head", "live-group-count", "live-stock-rank",
+                   "live-stock-identity", "live-stock-meta"):
+        assert marker in js
+        assert "." + marker in css
+
+
 def test_realtime_limitup_card_marks_reused_reason_date():
     js = (WEB / "assets" / "app.js").read_text(encoding="utf-8")
     assert "reason_is_history" in js

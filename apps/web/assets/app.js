@@ -329,15 +329,17 @@
       (groups[time] = groups[time] || []).push(hit);
     });
     var hits = Object.keys(groups).sort().reverse().map(function (time) {
-      var rows = groups[time].sort(function (a, b) { return Number(b.change_pct || 0) - Number(a.change_pct || 0); }).map(function (hit) {
+      var rows = groups[time].sort(function (a, b) { return Number(b.change_pct || 0) - Number(a.change_pct || 0); }).map(function (hit, index) {
         var pct = hit.change_pct == null ? '<span class="live-change muted">--</span>' :
           '<span class="live-change ' + cls(hit.change_pct) + '">' + fmtPct(hit.change_pct) + '</span>';
-        return '<div class="live-model-stock"><div class="live-stock-line">' + stk(hit.stock_id, hit.name || hit.stock_id) +
-          '<small>' + esc(code6(hit.stock_id)) + '</small>' + pct + '</div><div class="live-model-names">' +
+        return '<div class="live-model-stock"><div class="live-stock-line"><span class="live-stock-rank">' + String(index + 1).padStart(2, '0') +
+          '</span><div class="live-stock-identity">' + stk(hit.stock_id, hit.name || hit.stock_id) + '<small>' + esc(code6(hit.stock_id)) +
+          '</small></div>' + pct + '</div><div class="live-stock-meta"><div class="live-model-names">' +
           modelNames(hit).map(function (name) { return '<span>' + esc(name) + '</span>'; }).join('') +
-          (hit.score != null ? '<b>' + esc(hit.score) + '分</b>' : '') + '</div></div>';
+          '</div>' + (hit.score != null ? '<b class="live-model-score">' + esc(hit.score) + '<em>分</em></b>' : '') + '</div></div>';
       }).join('');
-      return '<section class="live-time-group"><header><time>' + esc(time) + '</time><span>模型命中 ' + groups[time].length + '只</span></header>' + rows + '</section>';
+      return '<section class="live-time-group"><header class="live-group-head"><div><time>' + esc(time) +
+        '</time><small>本分钟</small></div><span class="live-group-count">' + groups[time].length + ' 只命中</span></header>' + rows + '</section>';
     }).join('');
     var eventHtml = events.map(function (e) {
       return '<div class="live-feed-item"><div><span class="live-event-badge">' + esc(EVT_META[e.type] || e.type || '动态') + '</span>' +
