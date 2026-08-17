@@ -24,6 +24,7 @@
   function fmtMoney(n) { n = Number(n) || 0; var a = Math.abs(n); if (a >= 1e8) return (n / 1e8).toFixed(2) + '亿'; if (a >= 1e4) return (n / 1e4).toFixed(2) + '万'; return n.toFixed(0); }
   function fmtPct(n) { n = Number(n); return isNaN(n) ? '-' : (n >= 0 ? '+' : '') + n.toFixed(2) + '%'; }
   function cls(n) { return Number(n) >= 0 ? 'up' : 'dn'; }
+  function modelNames(hit) { return (hit.model_names && hit.model_names.length ? hit.model_names : (hit.model_hit || [])); }
 
   function fetchJSON(url, cacheMode) {
     return fetch(url, { cache: cacheMode || 'default' }).then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); });
@@ -300,7 +301,7 @@
         ? '<button type="button" class="reason-pop theme-reason" data-sid="' + esc(sid) + '">' + esc(reason) + '<span>' + entry.sourceCount + '源</span></button>'
         : '<span class="theme-reason-text">' + esc(reason) + '</span>';
       var hit = modelHitMap[sid];
-      var modelHtml = hit ? '<div class="theme-model-hit">🎯 ' + (hit.model_hit || []).map(esc).join(' · ') +
+      var modelHtml = hit ? '<div class="theme-model-hit">🎯 ' + modelNames(hit).map(esc).join(' · ') +
         (hit.score != null ? ' <b>' + esc(hit.score) + '</b>' : '') + '</div>' : '';
       return '<div class="theme-stock-card zt"><div class="theme-stock-top">' + stk(sid, code6(sid) + ' ' + name) +
         '<span class="stock-zt-badge">' + esc(entry.boards || '涨停') + '</span></div><div class="theme-stock-reason"><label>开盘啦</label>' + reasonHtml + '</div><small>' +
@@ -317,17 +318,31 @@
 
   function renderThemeLive(view) {
     if (!$('themeLiveList')) return;
-    var events = (view.events || []).slice(0, 80);
-    var hits = (view.realtime_model_hits || []).map(function (hit) {
-      return '<div class="live-feed-item model"><div><span class="live-event-badge">🎯 模型命中</span><span class="live-time">' +
-        esc(String(hit.ts || '').slice(-8, -3)) + '</span></div><p>' + stk(hit.stock_id, code6(hit.stock_id)) + ' ' +
-        esc((hit.model_hit || []).join(' · ')) + (hit.score != null ? ' · ' + esc(hit.score) + '分' : '') + '</p></div>';
+    var events = (view.events || []).filter(function (e) { return e.type !== 'signal_hit'; }).slice(0, 80);
+    var groups = {};
+    (view.realtime_model_hits || []).forEach(function (hit) {
+      var raw = String(hit.ts || '');
+      var time = raw.indexOf('T') >= 0 || raw.indexOf(' ') >= 0 ? raw.slice(11, 16) : raw.slice(0, 5);
+      time = time || '--:--';
+      (groups[time] = groups[time] || []).push(hit);
+    });
+    var hits = Object.keys(groups).sort().reverse().map(function (time) {
+      var rows = groups[time].sort(function (a, b) { return Number(b.change_pct || 0) - Number(a.change_pct || 0); }).map(function (hit) {
+        var pct = hit.change_pct == null ? '<span class="live-change muted">--</span>' :
+          '<span class="live-change ' + cls(hit.change_pct) + '">' + fmtPct(hit.change_pct) + '</span>';
+        return '<div class="live-model-stock"><div class="live-stock-line">' + stk(hit.stock_id, hit.name || hit.stock_id) +
+          '<small>' + esc(code6(hit.stock_id)) + '</small>' + pct + '</div><div class="live-model-names">' +
+          modelNames(hit).map(function (name) { return '<span>' + esc(name) + '</span>'; }).join('') +
+          (hit.score != null ? '<b>' + esc(hit.score) + '分</b>' : '') + '</div></div>';
+      }).join('');
+      return '<section class="live-time-group"><header><time>' + esc(time) + '</time><span>模型命中 ' + groups[time].length + '只</span></header>' + rows + '</section>';
     }).join('');
-    $('themeLiveList').innerHTML = hits + events.map(function (e) {
+    var eventHtml = events.map(function (e) {
       return '<div class="live-feed-item"><div><span class="live-event-badge">' + esc(EVT_META[e.type] || e.type || '动态') + '</span>' +
         '<span class="live-time">' + esc(String(e.ts || '').slice(11, 16)) + '</span></div>' +
         '<p>' + (e.stock_id ? stk(e.stock_id, code6(e.stock_id)) + ' ' : '') + esc(e.detail || '') + '</p></div>';
-    }).join('') || '<div class="muted" style="padding:14px">暂无实时播报</div>';
+    }).join('');
+    $('themeLiveList').innerHTML = hits + eventHtml || '<div class="muted" style="padding:14px">暂无实时播报</div>';
   }
 
   function localToday() {

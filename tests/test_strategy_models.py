@@ -1,5 +1,7 @@
 # V0.3 任务 2：17 模型条件测试（合成序列命中/不命中）
 import datetime
+import json
+from pathlib import Path
 
 from services.collector.strategy_models import (
     MODELS,
@@ -95,3 +97,11 @@ def test_models_registry_complete():
         "golden_vol", "hub_breakout", "div_reversal", "ma_momentum", "bottom_rev",
         "multi_factor", "sub_low", "sub_trend_vol", "sub_breakout", "sub_main",
     }
+
+
+def test_all_enabled_models_have_chinese_display_names():
+    config = json.loads(Path("config/strategy.json").read_text(encoding="utf-8"))
+    enabled = {mid: item for mid, item in config["models"].items() if item.get("enabled")}
+    assert set(enabled) == set(MODELS)
+    assert all(item.get("name") and any("\u4e00" <= ch <= "\u9fff" for ch in item["name"])
+               for item in enabled.values())

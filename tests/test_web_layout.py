@@ -57,3 +57,12 @@ def test_theme_has_archive_date_selector_and_realtime_toggle():
         assert marker in js
     assert ".theme-mode-controls" in css
     assert ".theme-realtime-toggle" in css
+
+
+def test_theme_model_hits_use_chinese_names_and_group_live_feed_by_time():
+    js = (WEB / "assets" / "app.js").read_text(encoding="utf-8")
+    css = (WEB / "assets" / "app.css").read_text(encoding="utf-8")
+    for marker in ("model_names", "live-time-group", "live-model-stock", "change_pct", "signal_hit"):
+        assert marker in js
+    assert ".live-time-group" in css
+    assert ".live-model-stock" in css

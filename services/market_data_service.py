@@ -21,6 +21,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 DATA_DIR = "data"
 HOST = "127.0.0.1"
 PORT = 8787
+STRATEGY_CONFIG = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                               "config", "strategy.json")
 
 
 # ---------------- 数据读取（lru 缓存） ----------------
@@ -48,6 +50,18 @@ def load_json(*rel_parts):
         return None
     mtime = int(os.stat(path).st_mtime_ns)
     return _cached_json(tuple(rel_parts), mtime)
+
+
+@lru_cache(maxsize=4)
+def _cached_model_names(mtime_ns):
+    config = _read_json(STRATEGY_CONFIG) or {}
+    return {mid: item.get("name", mid) for mid, item in (config.get("models") or {}).items()}
+
+
+def load_model_names():
+    if not os.path.isfile(STRATEGY_CONFIG):
+        return {}
+    return _cached_model_names(int(os.stat(STRATEGY_CONFIG).st_mtime_ns))
 
 
 def latest_date():
@@ -122,6 +136,8 @@ def intraday_latest():
     event_doc = load_json("facts", date_str, "events.json") or {}
     events = sorted(event_doc.get("events") or [], key=lambda e: e.get("ts", ""), reverse=True)[:200]
     instruments = load_json("normalized", "stocks.json") or {}
+    snapshot_stocks = snapshot.get("stocks") or {}
+    model_name_map = load_model_names()
 
     limitups = []
     for sid, pool_entry in limitup_pool.items():
@@ -134,24 +150,27 @@ def intraday_latest():
 
     model_hits = []
     seen = set()
+    def model_hit_item(sid, models, score, ts):
+        quote = snapshot_stocks.get(sid) or {}
+        return {"stock_id": sid, "name": (instruments.get(sid) or {}).get("name", sid),
+                "model_hit": models, "model_names": [model_name_map.get(mid, mid) for mid in models],
+                "score": score, "ts": ts, "change_pct": quote.get("change_pct")}
+
     for sid, entry in alert_pool.items():
         models = entry.get("model_hit") or []
         if not models:
             continue
-        model_hits.append({"stock_id": sid, "name": (instruments.get(sid) or {}).get("name", sid),
-                           "model_hit": models, "score": entry.get("score"),
-                           "ts": entry.get("entry_time", "")})
+        model_hits.append(model_hit_item(sid, models, entry.get("score"), entry.get("entry_time", "")))
         seen.add(sid)
     for event in events:
         sid = event.get("stock_id")
         if event.get("type") != "signal_hit" or not sid or sid in seen:
             continue
-        model_hits.append({"stock_id": sid, "name": (instruments.get(sid) or {}).get("name", sid),
-                           "model_hit": event.get("models") or [], "score": event.get("score"),
-                           "ts": event.get("ts", "")})
+        models = event.get("models") or []
+        model_hits.append(model_hit_item(sid, models, event.get("score"), event.get("ts", "")))
         seen.add(sid)
+    model_hits.sort(key=lambda item: item.get("ts", ""), reverse=True)
 
-    snapshot_stocks = snapshot.get("stocks") or {}
     result = {key: value for key, value in snapshot.items() if key != "stocks"}
     # 前端实时题材只需涨停池；5000+ 只行情保留在 append-only NDJSON，不随轮询重复下发。
     result["stocks"] = {}

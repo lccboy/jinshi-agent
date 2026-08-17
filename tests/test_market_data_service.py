@@ -36,7 +36,7 @@ def make_client(tmp_data, tmp_path):
         json.dump({"SZ300487": {"run_id": "r1", "models": {"breakout": 60}, "score": 80}}, fh)
     with open(os.path.join(facts, "pool.json"), "w", encoding="utf-8") as fh:
         json.dump({"data_date": "2026-08-14", "pools": {
-            "alert": {"SZ300487": {"score": 80, "model_hit": ["breakout"]}},
+            "alert": {"SZ300487": {"score": 80, "model_hit": ["breakout"], "entry_time": "10:00:00"}},
             "limitup": {"SZ300487": {"entry_time": "10:00:00"}},
         }}, fh)
     with open(os.path.join(facts, "events.json"), "w", encoding="utf-8") as fh:
@@ -47,7 +47,11 @@ def make_client(tmp_data, tmp_path):
     os.makedirs(intraday, exist_ok=True)
     with open(os.path.join(intraday, "snapshots.ndjson"), "w", encoding="utf-8") as fh:
         fh.write(json.dumps({"ts": "2026-08-14 10:02:03", "phase": "continuous",
-                             "stocks": {"SZ300487": {"price": 12.0}}}) + "\n")
+                             "stocks": {"SZ300487": {"price": 12.0, "change_pct": 9.98}}}) + "\n")
+    normalized = os.path.join(tmp_data, "normalized")
+    os.makedirs(normalized, exist_ok=True)
+    with open(os.path.join(normalized, "stocks.json"), "w", encoding="utf-8") as fh:
+        json.dump({"SZ300487": {"name": "蓝晓科技"}}, fh, ensure_ascii=False)
     kline = os.path.join(tmp_data, "kline")
     os.makedirs(kline, exist_ok=True)
     with open(os.path.join(kline, "SZ300487.json"), "w", encoding="utf-8") as fh:
@@ -158,6 +162,10 @@ def test_intraday_latest(api):
     assert data["limitup"][0]["stock_id"] == "SZ300487"
     assert data["limitup"][0]["reason"] == "存储"
     assert data["model_hits"][0]["model_hit"] == ["breakout"]
+    assert data["model_hits"][0]["model_names"] == ["②横盘突破"]
+    assert data["model_hits"][0]["name"] == "蓝晓科技"
+    assert data["model_hits"][0]["change_pct"] == 9.98
+    assert data["model_hits"][0]["ts"] == "10:00:00"
     assert data["events"][0]["type"] == "signal_hit"
 
 
