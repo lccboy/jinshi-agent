@@ -23,6 +23,8 @@
   var sectorRealtime = false;
   var sectorRealtimeTimer = null;
   var sectorForceHistory = false;
+  var sectorForceRealtime = false;
+  var SECTOR_TODAY_VALUE = '__sector_today_realtime__';
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -96,6 +98,9 @@
       DAYS = idx.days || [];
       var sel = $('dateSel');
       sel.innerHTML = '';
+      var todayOption = document.createElement('option');
+      todayOption.value = SECTOR_TODAY_VALUE; todayOption.textContent = '当天 · 实时';
+      sel.appendChild(todayOption);
       DAYS.forEach(function (d) {
         var o = document.createElement('option');
         o.value = d.date; o.textContent = d.date;
@@ -477,7 +482,8 @@
 
   /* 板块强度：参考 KPL 左侧排行 + 右侧详情格局。 */
   function vSector(view) {
-    sectorRealtime = isMarketSession() && !sectorForceHistory;
+    sectorRealtime = !sectorForceHistory && (isMarketSession() || sectorForceRealtime);
+    if (sectorRealtime && $('dateSel')) $('dateSel').value = SECTOR_TODAY_VALUE;
     Promise.all([loadLib('sectors.json'), loadExpandLibs()]).then(function () {
       renderSectorWorkbench(view);
       if (sectorRealtime) refreshSectorRealtime();
@@ -490,7 +496,7 @@
     var sectorDate = sectorRealtime ? localToday() + ' · 实时' : currentDay + ' · 归档';
     return '<div class="sector-shell"><details class="sector-trend"><summary>板块强度排序变化 <small>近 10 个交易日</small></summary><div class="sector-trend-grid">' + trend + '</div></details>' +
       '<div class="sector-workbench"><aside class="sector-sidebar"><div class="sector-side-head"><div><span>板块强度排行</span><small>' + esc(sectorDate) + '</small></div>' +
-      '<div class="sector-date"><b>◀</b><span>' + esc(sectorDate) + '</span><b>▶</b></div></div>' +
+      '<div class="sector-date"><button type="button" data-sector-day="older" title="上一历史交易日">◀</button><span>' + esc(sectorDate) + '</span><button type="button" data-sector-day="newer" title="下一交易日 / 当天实时">▶</button></div></div>' +
       '<div class="panel-search"><input id="sectorSearch" placeholder="搜索板块…"></div><div id="sectorList" class="sector-rank-list"></div></aside>' +
       '<section class="sector-detail"><div id="sectorDetail"></div></section></div></div>';
   }
@@ -586,6 +592,28 @@
     }).catch(function () {}).then(function () {
       if (sectorRealtime) sectorRealtimeTimer = window.setTimeout(refreshSectorRealtime, 5000);
     });
+  }
+
+  function navigateSectorDay(direction) {
+    var dates = DAYS.map(function (d) { return d.date; });
+    if (!dates.length) return;
+    if (sectorRealtime) {
+      if (direction === 'older') {
+        sectorForceHistory = true; sectorForceRealtime = false; sectorRealtime = false;
+        window.clearTimeout(sectorRealtimeTimer); $('dateSel').value = dates[0]; loadDay(dates[0]);
+      }
+      return;
+    }
+    var index = dates.indexOf(currentDay);
+    if (index < 0) index = 0;
+    if (direction === 'older' && index + 1 < dates.length) {
+      $('dateSel').value = dates[index + 1]; loadDay(dates[index + 1]);
+    } else if (direction === 'newer' && index > 0) {
+      $('dateSel').value = dates[index - 1]; loadDay(dates[index - 1]);
+    } else if (direction === 'newer' && index === 0) {
+      sectorForceHistory = false; sectorForceRealtime = true; sectorRealtime = true;
+      $('dateSel').value = SECTOR_TODAY_VALUE; render();
+    }
   }
 
   /* 策略模型：命中 + 买点 */
@@ -702,7 +730,7 @@
       tab.classList.add('active');
       if (tab.dataset.view !== 'theme' && themeRealtime) stopThemeRealtime(false);
       if (tab.dataset.view !== 'sector') { sectorRealtime = false; window.clearTimeout(sectorRealtimeTimer); }
-      if (tab.dataset.view === 'sector') sectorForceHistory = false;
+      if (tab.dataset.view === 'sector') { sectorForceHistory = false; sectorForceRealtime = false; }
       currentView = tab.dataset.view;
       if (history.replaceState) history.replaceState(null, '', '#' + currentView);
       render();
@@ -710,10 +738,20 @@
   });
   $('dateSel').addEventListener('change', function () {
     if (themeRealtime) stopThemeRealtime(false);
+    if (this.value === SECTOR_TODAY_VALUE) {
+      if (currentView === 'sector') {
+        sectorForceHistory = false; sectorForceRealtime = true; sectorRealtime = true; render();
+      } else {
+        this.value = currentDay;
+      }
+      return;
+    }
     if (currentView === 'sector') { sectorForceHistory = true; sectorRealtime = false; window.clearTimeout(sectorRealtimeTimer); }
     loadDay(this.value);
   });
   document.addEventListener('click', function (ev) {
+    var sectorDay = ev.target.closest ? ev.target.closest('[data-sector-day]') : null;
+    if (sectorDay) { ev.stopPropagation(); navigateSectorDay(sectorDay.dataset.sectorDay); return; }
     var realtimeToggle = ev.target.closest ? ev.target.closest('#themeRealtimeToggle') : null;
     if (realtimeToggle) {
       ev.stopPropagation();
