@@ -100,3 +100,24 @@ def test_cap_alert_pool_keeps_highest_scores():
     cap_alert_pool(pools, 2)
     assert list(pools["alert"]) == ["B", "C"]
     assert set(pools["candidate"]) == {"A", "D"}
+
+
+def test_strategy_entry_carries_stop_and_rr(tmp_path):
+    # 策略条目必须落盘止损位/止损%/风险回报比（前端"止损位|止损%|风险回报比"栏位依赖）
+    kline_dir = str(tmp_path / "kline")
+    out_root = str(tmp_path / "data")
+    idx = make_bars([10.0 + 0.01 * i for i in range(65)])
+    write_kline("SH000001", idx, kline_dir)
+    closes = [10.0 + 0.01 * i for i in range(30)]
+    bars = make_bars(closes, highs=[10.4] * 30, lows=[9.9] * 30, vols=[1_000_000] * 30)
+    # 突破日：贴箱顶放量小阳（brk≈0.4%，收盘近高位，RR>3 过买点过滤）
+    bars.append({"d": 20260302, "o": 10.4, "h": 10.45, "l": 10.38, "c": 10.44, "v": 3_000_000, "amt": 0})
+    write_kline("SZ300001", bars, kline_dir)
+    run_strategy("2026-08-14", kline_dir, out_root,
+                 config_path="config/strategy.json", universe=["SZ300001"])
+    day = json.load(open(str(tmp_path / "data" / "facts" / "2026-08-14" / "strategy.json"), encoding="utf-8"))
+    assert "SZ300001" in day
+    entry = day["SZ300001"]
+    assert entry["stop"] is not None and entry["stop"] < entry["buy_point"]
+    assert entry["stop_pct"] is not None and 0 < entry["stop_pct"] < 10
+    assert entry["rr"] is not None and entry["rr"] > 0

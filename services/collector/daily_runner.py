@@ -172,6 +172,7 @@ def build_stage_commands(date_str, runtime):
             [py, "-m", "services.collector.archive_job", "--date", date_str,
              "--facts", os.path.join(data, "facts"), "--web", os.path.join(data, "web"),
              "--intraday", os.path.join(data, "intraday"), "--archive", os.path.join(data, "archive"),
+             "--kline", os.path.join(data, "kline"),
              "--verify", "--stage-only", "--kpl-output", runtime.get("kpl_output", r"H:\projects\kpl\output")],
             [py, "-m", "services.collector.quality_gate", "--date", date_str, "--data", data, "--promote"],
         ],

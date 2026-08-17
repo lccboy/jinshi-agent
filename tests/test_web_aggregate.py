@@ -311,3 +311,38 @@ def test_update_sector_trend_reports_authoritative_history_coverage():
         {"date": "2026-08-11", "sector_count": 0, "authoritative_limit_up_count": 0,
          "complete": False},
     ]
+
+
+def test_build_strategy_all_carries_full_columns(tmp_path):
+    # 策略全量视图：评分/止损/rr/现价/涨幅/进入时间 齐备（前端策略页栏位依赖）
+    from services.collector.archive_job import build_strategy_all, write_strategy_all
+    strategy = {
+        "SZ300001": {"score": 88.0, "models": {"breakout": 100.0}, "buy_point": 10.41,
+                     "stop": 10.19, "stop_pct": 2.4, "rr": 3.4, "target": 11.28,
+                     "stars": 3, "confirm": {"sector_strength": True, "money_flow": True, "leading_reason": True}},
+        "SH600000": {"score": 60.0, "models": {"reversal": 50.0}, "buy_point": None,
+                     "stop": None, "stop_pct": None, "rr": None, "target": None, "stars": 2, "confirm": {}},
+    }
+    pool = {"pools": {"alert": {"SZ300001": {"entry_time": "14:32"}}, "candidate": {"SH600000": {"entry_time": "10:05"}}}}
+    kline_dir = tmp_path / "kline"
+    kline_dir.mkdir()
+    (kline_dir / "SZ300001.json").write_text(json.dumps({"bars": [
+        {"d": 20260814, "c": 10.10}, {"d": 20260817, "c": 10.44, "v": 1}], "adjusted": "qfq"}), encoding="utf-8")
+    (kline_dir / "SH600000.json").write_text(json.dumps({"bars": [
+        {"d": 20260814, "c": 9.0}, {"d": 20260817, "c": 9.2, "v": 1}], "adjusted": "qfq"}), encoding="utf-8")
+
+    doc = build_strategy_all("2026-08-17", strategy, pool, str(kline_dir),
+                             {"SZ300001": "测试票A", "SH600000": "测试票B"})
+    assert doc["count"] == 2
+    top = doc["list"][0]
+    assert top["stock_id"] == "SZ300001"  # 评分降序
+    assert top["name"] == "测试票A"
+    assert top["price"] == 10.44
+    assert abs(top["chg"] - round((10.44 / 10.10 - 1) * 100, 2)) < 0.01
+    assert top["stop"] == 10.19 and top["stop_pct"] == 2.4 and top["rr"] == 3.4
+    assert top["entry_time"] == "14:32"
+
+    base, gz = write_strategy_all("2026-08-17", doc, tmp_path / "web")
+    assert os.path.exists(base) and os.path.exists(gz)
+    loaded = json.loads(gzip.open(gz, "rt", encoding="utf-8").read())
+    assert loaded["count"] == 2

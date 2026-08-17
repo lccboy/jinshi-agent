@@ -117,7 +117,8 @@ def build_day_view(date_str, facts):
 
     strategy = facts.get("strategy") or {}
     view["strategy_top"] = [
-        {"stock_id": sid, **{k: e[k] for k in ("score", "models", "buy_point", "target") if k in e}}
+        {"stock_id": sid, **{k: e[k] for k in ("score", "models", "buy_point", "target",
+                                                   "stop", "stop_pct", "rr") if k in e}}
         for sid, e in sorted(strategy.items(), key=lambda kv: kv[1].get("score", 0), reverse=True)[:STRATEGY_TOP_N]
     ]
 
@@ -353,6 +354,62 @@ FACT_FILES = ("market", "indexes", "sectors", "limitup", "ladder", "membership",
               "money_flow", "leading_reason", "pool", "events")
 
 
+def build_strategy_all(date_str, strategy, pool, kline_dir, stock_names=None):
+    """策略全量精简视图（前端策略页：按模型/时间归类 + 完整栏位）。
+
+    每只命中股带：评分/模型/买入区/止损/止损%/风险回报比/目标/星级/进入时间/现价/今日涨幅
+    （现价与涨幅取 kline 当日收盘 bar；buy_point 为空时相关栏位为 None，前端显 '-'）。
+    """
+    pools = pool.get("pools", {}) if isinstance(pool, dict) else {}
+    rows = []
+    for sid, entry in strategy.items():
+        pe = None
+        for key in ("alert", "candidate", "limitup", "ladder", "watchlist"):
+            bucket = pools.get(key) or {}
+            if sid in bucket:
+                pe = bucket[sid]
+                break
+        price = chg = None
+        if kline_dir:
+            kpath = os.path.join(kline_dir, f"{sid}.json")
+            if os.path.exists(kpath):
+                with open(kpath, encoding="utf-8") as fh:
+                    bars = json.load(fh).get("bars", [])
+                if len(bars) >= 2 and bars[-1].get("c") and bars[-2].get("c"):
+                    price = round(bars[-1]["c"], 2)
+                    prev = bars[-2]["c"]
+                    chg = round((bars[-1]["c"] / prev - 1) * 100, 2) if prev else None
+        rows.append({
+            "stock_id": sid,
+            "name": (stock_names or {}).get(sid, sid),
+            "score": entry.get("score"),
+            "models": entry.get("models", {}),
+            "buy_lo": entry.get("buy_point"),
+            "stop": entry.get("stop"),
+            "stop_pct": entry.get("stop_pct"),
+            "rr": entry.get("rr"),
+            "target": entry.get("target"),
+            "stars": entry.get("stars"),
+            "confirm": entry.get("confirm"),
+            "entry_time": (pe or {}).get("entry_time"),
+            "price": price,
+            "chg": chg,
+        })
+    rows.sort(key=lambda r: r["score"] or 0, reverse=True)
+    return {"date": date_str, "count": len(rows), "list": rows}
+
+
+def write_strategy_all(date_str, doc, web_dir):
+    """写 web/strategy_all.json + .gz（前端策略页懒加载）。"""
+    os.makedirs(web_dir, exist_ok=True)
+    base = os.path.join(web_dir, "strategy_all.json")
+    with open(base, "w", encoding="utf-8") as fh:
+        json.dump(doc, fh, ensure_ascii=False)
+    with gzip.open(base + ".gz", "wt", encoding="utf-8") as fh:
+        json.dump(doc, fh, ensure_ascii=False)
+    return base, base + ".gz"
+
+
 def read_facts(date_str, facts_dir):
     """读 data/facts/<date>/*.json → 解包为 build_day_view 的直接 dict。
 
@@ -381,8 +438,9 @@ def read_facts(date_str, facts_dir):
     return facts
 
 
-def archive_day(date_str, facts_dir, web_dir, intraday_dir, archive_dir, publish_latest=True, kpl_output=None):
-    """归档编排：facts → 视图层（day + detail + 索引 + master lib）→ intraday 移入 archive。返回 (view, paths)。"""
+def archive_day(date_str, facts_dir, web_dir, intraday_dir, archive_dir, publish_latest=True,
+                kpl_output=None, kline_dir=None):
+    """归档编排：facts → 视图层（day + detail + strategy_all + 索引 + master lib）→ intraday 移入 archive。返回 (view, paths)。"""
     facts = read_facts(date_str, facts_dir)
     stocks_path = os.path.join(os.path.dirname(facts_dir), "normalized", "stocks.json")
     if os.path.exists(stocks_path):
@@ -419,6 +477,9 @@ def archive_day(date_str, facts_dir, web_dir, intraday_dir, archive_dir, publish
     view = build_day_view(date_str, facts)
     paths = write_day_view(date_str, view, web_dir, publish_latest=publish_latest)
     paths += write_detail_view(date_str, build_detail_view(date_str, facts), web_dir)
+    paths += write_strategy_all(date_str, build_strategy_all(date_str, facts.get("strategy") or {},
+                                                             facts.get("pool") or {}, kline_dir,
+                                                             facts.get("stock_names")), web_dir)
     if sector_detail is not None:
         paths += write_sector_view(date_str, sector_detail, web_dir)
     paths += [os.path.join(web_dir, n) for n in
@@ -452,10 +513,12 @@ def main(argv=None):
     ap.add_argument("--verify", action="store_true", help="输出体积校验（≤200KB raw / ≤80KB gz）")
     ap.add_argument("--stage-only", action="store_true", help="只生成历史日视图，不更新 day_latest.json")
     ap.add_argument("--kpl-output", help="KPL 每日文件目录；用于补齐板块统计、子板块和成分股详情")
+    ap.add_argument("--kline", help="kline 目录；用于策略全量视图注入现价/今日涨幅（默认 data/kline）")
     args = ap.parse_args(argv)
 
     view, paths = archive_day(args.date, args.facts, args.web, args.intraday, args.archive,
-                              publish_latest=not args.stage_only, kpl_output=args.kpl_output)
+                              publish_latest=not args.stage_only, kpl_output=args.kpl_output,
+                              kline_dir=args.kline)
     print(f"[OK] {args.date} 视图层已生成: day_{args.date}.json + .gz")
     if args.verify:
         ok, report = verify_view(view, paths[0], paths[1])

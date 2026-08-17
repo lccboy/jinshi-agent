@@ -208,12 +208,16 @@ def run_strategy(date_str, kline_dir, out_root, config_path="config/strategy.jso
         secs = membership.get(sid, [])
         confirm = compute_confirm(secs, facts["sectors"], facts["money_flow"], facts["leading_reason"])
         stars = 4 if all(confirm.values()) else (3 if sum(confirm.values()) >= 2 else 2)
+        stop_pct = round((bars[-1]["c"] - bp["stop"]) / bars[-1]["c"] * 100, 2) if bp else None
 
         strategy[sid] = {"run_id": run_id, "models": models_out, "score": score,
                          "buy_point": bp["buy_lo"] if bp else None, "target": bp["target"] if bp else None,
+                         "stop": bp["stop"] if bp else None, "stop_pct": stop_pct, "rr": bp["rr"] if bp else None,
                          "confirm": confirm, "stars": stars}
         pool_entry = {"entry_time": datetime.datetime.now().strftime("%H:%M"), "score": score,
-                      "status": "active", "model_hit": sorted(models_out), "confirm": confirm, "stars": stars}
+                      "status": "active", "model_hit": sorted(models_out), "confirm": confirm, "stars": stars,
+                      "buy_point": bp["buy_lo"] if bp else None, "stop": bp["stop"] if bp else None,
+                      "stop_pct": stop_pct, "rr": bp["rr"] if bp else None, "target": bp["target"] if bp else None}
         pool["pools"]["alert" if score >= min_score else "candidate"][sid] = pool_entry
         events.append({"ts": f"{date_str}T{datetime.datetime.now().strftime('%H:%M:%S')}", "type": "signal_hit",
                        "stock_id": sid, "score": score, "detail": "策略引擎 17 模型盘后扫描", "source": "tdx_model"})
