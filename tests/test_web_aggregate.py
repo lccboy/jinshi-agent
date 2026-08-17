@@ -99,6 +99,26 @@ def test_build_day_view_counts_daily_limitups_by_theme():
     assert view["theme_limitup"]["13"] == []
 
 
+def test_build_day_view_counts_limitups_by_main_and_sub_concept():
+    facts = {
+        "limitup": {"SZ300487": {}, "SH600000": {}},
+        "theme_stocks": {"9": ["SZ300487", "SH600000"]},
+        "themes": {"9": {"tree": [
+            {"n1": "设备", "st": [], "l2": [
+                {"n2": "光刻机", "st": ["SZ300487", "SH600000"]},
+                {"n2": "清洗设备", "st": ["SH600000"]},
+            ]},
+            {"n1": "材料", "st": ["SZ300487"], "l2": []},
+            {"n1": "无涨停", "st": ["SH600519"], "l2": []},
+        ]}},
+    }
+    view = build_day_view("2026-08-14", facts)
+    concepts = view["theme_concept_limitup"]["9"]
+    assert [(x["level"], x["name"], len(x["stock_ids"])) for x in concepts] == [
+        (1, "设备", 2), (2, "光刻机", 2), (1, "材料", 1), (2, "清洗设备", 1)
+    ]
+
+
 def test_build_day_view_skips_missing_sections():
     view = build_day_view("2026-08-14", {})
     assert view["date"] == "2026-08-14"

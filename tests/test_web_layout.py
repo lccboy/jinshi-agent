@@ -27,3 +27,12 @@ def test_theme_detail_uses_original_three_column_concept_hierarchy():
     for marker in ("concept-table", "td-l1", "td-l2", "td-stocks", "stock-pill", "theme-stock-grid"):
         assert marker in js
         assert "." + marker in css
+
+
+def test_theme_sidebar_expands_daily_concepts_and_cards_only_limitups():
+    js = (WEB / "assets" / "app.js").read_text(encoding="utf-8")
+    assert "theme_concept_limitup" in js
+    assert "theme-concept-children" in js
+    assert "theme-concept-row" in js
+    assert "该题材当日暂无涨停股" in js
+    assert "sourceCount > 1" in js

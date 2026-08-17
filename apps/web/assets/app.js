@@ -9,6 +9,7 @@
   var currentView = 'signal';
   var selectedThemeId = null;
   var selectedSectorId = null;
+  var expandedThemeIds = {};
 
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -197,10 +198,16 @@
     if ($('themeMeta')) $('themeMeta').textContent = '总题材 ' + Object.keys(themes).length + ' · 涨停 ' + (view.limitup || []).length + '只';
     var html = ids.map(function (tid) {
       var t = themes[tid] || {};
-      return '<div class="theme-nav-row' + (tid === selectedThemeId ? ' active' : '') + '" data-tid="' + esc(tid) + '">' +
-        '<span class="expand-icon">›</span><span class="theme-name">' + esc(t.name || tid) + '</span>' +
+      var concepts = (view.theme_concept_limitup || {})[tid] || [];
+      var children = expandedThemeIds[tid] ? '<div class="theme-concept-children">' + concepts.map(function (item) {
+        return '<div class="theme-concept-row level-' + item.level + '" data-tid="' + esc(tid) + '">' +
+          '<span class="concept-level">' + (item.level === 1 ? '主' : '细') + '</span><span class="concept-name">' +
+          esc(item.level === 2 ? (item.parent + ' / ' + item.name) : item.name) + '</span><b>' + item.stock_ids.length + '</b></div>';
+      }).join('') + (concepts.length ? '' : '<div class="theme-concept-empty">当日无涨停概念</div>') + '</div>' : '';
+      return '<div class="theme-nav-group"><div class="theme-nav-row' + (tid === selectedThemeId ? ' active' : '') + '" data-tid="' + esc(tid) + '">' +
+        '<button type="button" class="theme-toggle" data-tid="' + esc(tid) + '" aria-label="展开' + esc(t.name || tid) + '">' + (expandedThemeIds[tid] ? '▾' : '▸') + '</button><span class="theme-name">' + esc(t.name || tid) + '</span>' +
         '<span class="theme-zt-count">涨停 ' + (themeLimitup[tid] || []).length + '</span>' +
-        '<span class="theme-stock-count">' + (t.stock_count || 0) + '只</span></div>';
+        '<span class="theme-stock-count">' + (t.stock_count || 0) + '只</span></div>' + children + '</div>';
     }).join('');
     $('themeList').innerHTML = ids.length ? html : '<div class="muted" style="padding:12px">无匹配题材</div>';
     renderThemeDetail(view, selectedThemeId);
@@ -235,10 +242,16 @@
           '<td class="td-l2 no-l2">-</td><td class="td-stocks">' + stockPills(l1.st) + '</td></tr>');
       }
     });
-    var cards = sids.slice().sort(function (a, b) { return Number(ztIds.has(b)) - Number(ztIds.has(a)); }).map(function (sid) {
+    var themeLimitups = (view.limitup || []).filter(function (entry) { return ztIds.has(entry.stock_id); });
+    var cards = themeLimitups.map(function (entry) {
+      var sid = entry.stock_id;
       var name = (slim[sid] || {}).n || sid;
-      return '<div class="theme-stock-card' + (ztIds.has(sid) ? ' zt' : '') + '"><div>' + stk(sid, code6(sid) + ' ' + name) +
-        (ztIds.has(sid) ? '<span class="stock-zt-badge">涨停</span>' : '') + '</div><small>' +
+      var reason = entry.reason || '-';
+      var reasonHtml = entry.sourceCount > 1
+        ? '<button type="button" class="reason-pop theme-reason" data-sid="' + esc(sid) + '">' + esc(reason) + '<span>' + entry.sourceCount + '源</span></button>'
+        : '<span class="theme-reason-text">' + esc(reason) + '</span>';
+      return '<div class="theme-stock-card zt"><div class="theme-stock-top">' + stk(sid, code6(sid) + ' ' + name) +
+        '<span class="stock-zt-badge">' + esc(entry.boards || '涨停') + '</span></div><div class="theme-stock-reason"><label>开盘啦</label>' + reasonHtml + '</div><small>' +
         (((slim[sid] || {}).t || []).slice(0, 4).map(function (x) { return esc(((LIBS.themes || {})[x] || {}).name || x); }).join(' · ') || '暂无标签') + '</small></div>';
     }).join('');
     $('themeContent').innerHTML = '<section class="theme-summary"><h2>' + esc(t.name || tid) + '</h2>' +
@@ -246,7 +259,8 @@
       '<section class="detail-section"><h3>概念层级（主概念 / 细分概念 / 成分股）</h3><div class="concept-table-scroll"><table class="concept-table">' +
       '<thead><tr><th class="col-l1">主概念</th><th class="col-l2">细分概念</th><th class="col-stocks">成分股</th></tr></thead><tbody>' +
       (treeRows.join('') || '<tr><td colspan="3" class="muted">暂无概念层级</td></tr>') + '</tbody></table></div></section>' +
-      '<section class="detail-section"><h3>成分股及题材标签（' + sids.length + '只，涨停' + ztIds.size + '只）</h3><div class="theme-stock-grid">' + cards + '</div></section>';
+      '<section class="detail-section"><h3>当日涨停股（' + ztIds.size + '只）</h3><div class="theme-stock-grid">' +
+      (cards || '<div class="theme-no-limitup">该题材当日暂无涨停股</div>') + '</div></section>';
   }
 
   function renderThemeLive(view) {
@@ -396,6 +410,20 @@
   document.addEventListener('click', function (ev) {
     var chip = ev.target.closest ? ev.target.closest('.tag-chip') : null;
     if (chip) { ev.stopPropagation(); goTag(chip.dataset.go, chip.dataset.id); return; }
+    var themeToggle = ev.target.closest ? ev.target.closest('.theme-toggle') : null;
+    if (themeToggle) {
+      ev.stopPropagation();
+      var toggleTid = themeToggle.dataset.tid;
+      expandedThemeIds[toggleTid] = !expandedThemeIds[toggleTid];
+      renderThemeWorkbench(CACHE[currentDay]);
+      return;
+    }
+    var themeConcept = ev.target.closest ? ev.target.closest('.theme-concept-row') : null;
+    if (themeConcept) {
+      selectedThemeId = themeConcept.dataset.tid;
+      renderThemeWorkbench(CACHE[currentDay]);
+      return;
+    }
     var themeNav = ev.target.closest ? ev.target.closest('.theme-nav-row') : null;
     if (themeNav) {
       selectedThemeId = themeNav.dataset.tid;

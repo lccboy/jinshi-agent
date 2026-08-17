@@ -75,6 +75,23 @@ def build_day_view(date_str, facts):
         str(tid): sorted(limitup_ids.intersection(members or []))
         for tid, members in (facts.get("theme_stocks") or {}).items()
     }
+    concept_limitup = {}
+    for tid, theme in (facts.get("themes") or {}).items():
+        entries = []
+        for main in theme.get("tree", []) or []:
+            main_members = set(main.get("st", []) or [])
+            for sub in main.get("l2", []) or []:
+                sub_hits = sorted(limitup_ids.intersection(sub.get("st", []) or []))
+                main_members.update(sub.get("st", []) or [])
+                if sub_hits:
+                    entries.append({"level": 2, "parent": main.get("n1", ""),
+                                    "name": sub.get("n2", ""), "stock_ids": sub_hits})
+            main_hits = sorted(limitup_ids.intersection(main_members))
+            if main_hits:
+                entries.append({"level": 1, "name": main.get("n1", ""), "stock_ids": main_hits})
+        entries.sort(key=lambda item: (-len(item["stock_ids"]), item["level"], item["name"]))
+        concept_limitup[str(tid)] = entries
+    view["theme_concept_limitup"] = concept_limitup
 
     view["ladder"] = facts.get("ladder") or {}
 
@@ -270,6 +287,10 @@ def archive_day(date_str, facts_dir, web_dir, intraday_dir, archive_dir, publish
     if os.path.exists(theme_stocks_path):
         with open(theme_stocks_path, encoding="utf-8") as fh:
             facts["theme_stocks"] = json.load(fh)
+    themes_path = os.path.join(os.path.dirname(facts_dir), "normalized", "themes.json")
+    if os.path.exists(themes_path):
+        with open(themes_path, encoding="utf-8") as fh:
+            facts["themes"] = json.load(fh)
     view = build_day_view(date_str, facts)
     paths = write_day_view(date_str, view, web_dir, publish_latest=publish_latest)
     paths += write_detail_view(date_str, build_detail_view(date_str, facts), web_dir)
