@@ -6,6 +6,7 @@ from services.collector.normalize import (
     clean_ps_artifact,
     merge_limitup_sources,
     normalize_limitup_multi,
+    is_equity_code,
     sector_type,
     stock_id,
 )
@@ -18,6 +19,12 @@ def test_stock_id_market_prefix():
     assert stock_id("600000") == "SH600000"
     assert stock_id("920275") == "BJ920275"
     assert stock_id(300487) == "SZ300487"  # 数字输入也兼容
+
+
+def test_is_equity_code_excludes_bonds_and_indexes():
+    assert all(is_equity_code(x) for x in ("600000", "688001", "000001", "300001", "920275", "430001", "830001"))
+    assert not is_equity_code("110075")
+    assert not is_equity_code("123001")
 
 
 def test_sector_type_by_prefix():

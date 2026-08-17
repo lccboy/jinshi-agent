@@ -6,8 +6,10 @@ import os
 from services.collector.intraday_collector import (
     append_snapshot,
     build_snapshot,
+    cadence_for_time,
     phase_for_time,
     read_snapshots,
+    run_market_session,
     write_meta,
 )
 
@@ -19,6 +21,16 @@ def test_phase_for_time():
     assert phase_for_time("10:31:00") == "tail"       # 尾盘 10:31-15:00
     assert phase_for_time("14:59:59") == "tail"
     assert phase_for_time("15:20:00") == "tail"
+
+
+def test_cadence_for_market_time():
+    assert cadence_for_time("09:14:59") == ("closed", None)
+    assert cadence_for_time("09:15:00") == ("auction", 3)
+    assert cadence_for_time("09:30:00") == ("open", 3)
+    assert cadence_for_time("10:31:00") == ("tail", 30)
+    assert cadence_for_time("11:31:00") == ("lunch", None)
+    assert cadence_for_time("13:00:00") == ("tail", 30)
+    assert cadence_for_time("15:00:01") == ("closed", None)
 
 
 def test_build_snapshot_shape():
@@ -75,3 +87,28 @@ def test_write_meta(tmp_path):
     assert meta["cadence"] == "3s"
     assert meta["status"] == "running"
     assert meta["note"] == "x"
+
+
+def test_run_market_session_switches_cadence_and_stops(tmp_path):
+    import datetime
+    times = iter([
+        datetime.datetime(2026, 8, 17, 9, 15),
+        datetime.datetime(2026, 8, 17, 9, 30),
+        datetime.datetime(2026, 8, 17, 11, 31),
+        datetime.datetime(2026, 8, 17, 13, 0),
+        datetime.datetime(2026, 8, 17, 15, 0, 1),
+    ])
+    sleeps = []
+    scanned = []
+
+    def fake_collect(codes, phase="open"):
+        return {"ts": "x", "phase": phase, "stocks": {}}, {"SH600000": {"price": 10}}
+
+    count = run_market_session(str(tmp_path), "2026-08-17", ["600000"],
+                               now_fn=lambda: next(times), sleep_fn=sleeps.append,
+                               collect_fn=fake_collect, on_quotes=lambda quotes: scanned.append(quotes))
+    assert count == 3
+    assert [s["phase"] for s in read_snapshots(str(tmp_path / "2026-08-17"))] == ["auction", "open", "tail"]
+    meta = json.loads((tmp_path / "2026-08-17/meta.json").read_text(encoding="utf-8"))
+    assert meta["status"] == "done" and meta["snapshots"] == 3
+    assert len(scanned) == 3

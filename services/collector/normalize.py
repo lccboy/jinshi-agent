@@ -8,6 +8,12 @@ import re
 SOURCE_PRIORITY = ["kpl", "jygs", "ths", "xgb"]
 
 
+def is_equity_code(code):
+    """A 股股票代码白名单：沪 60/68、深 00/30、北 8/4/92；排除转债等品种。"""
+    value = str(code).strip().zfill(6)
+    return len(value) == 6 and value.isdigit() and value.startswith(("60", "68", "00", "30", "8", "4", "92"))
+
+
 def clean_ps_artifact(text):
     """解析 PowerShell 序列化残留 `@{k=v; k=v}` → dict（防御性兼容）。
 

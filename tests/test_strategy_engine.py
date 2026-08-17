@@ -2,7 +2,7 @@
 import datetime
 import json
 
-from services.collector.strategy_engine import buy_point, run_strategy
+from services.collector.strategy_engine import buy_point, cap_alert_pool, run_strategy
 
 
 def make_bars(closes, vols=None, opens=None, highs=None, lows=None, start=datetime.date(2026, 1, 1)):
@@ -76,3 +76,11 @@ def test_run_strategy_end_to_end(tmp_path):
     runs = json.load(open(str(tmp_path / "data" / "runs" / "strategy_runs.json"), encoding="utf-8"))
     assert report["run_id"] in runs
     assert runs[report["run_id"]]["universe"] == 2
+
+
+def test_cap_alert_pool_keeps_highest_scores():
+    pools = {"alert": {"A": {"score": 70}, "B": {"score": 90}, "C": {"score": 80}},
+             "candidate": {"D": {"score": 50}}}
+    cap_alert_pool(pools, 2)
+    assert list(pools["alert"]) == ["B", "C"]
+    assert set(pools["candidate"]) == {"A", "D"}

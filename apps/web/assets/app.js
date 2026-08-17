@@ -133,7 +133,7 @@
     var rows = lu.map(function (e, i) {
       var concepts = (e.concepts || []).map(function (c) { return '<span class="badge b-src">' + esc(c) + '</span>'; }).join('');
       return '<tr><td class="l">' + (i + 1) + '</td><td class="l">' + stk(e.stock_id, code6(e.stock_id)) + '</td>' +
-        '<td class="l">' + stk(e.stock_id, '名称') + '</td>' +
+        '<td class="l">' + stk(e.stock_id, e.name || e.stock_id) + '</td>' +
         '<td>' + (e.boards ? '<span class="badge b-boards">' + esc(e.boards) + '</span>' : '-') + '</td>' +
         '<td class="l">' + reasonCell(e.stock_id, e) + '</td><td class="l">' + concepts + '</td>' +
         '<td>' + esc(e.first_time || '-') + '</td><td>' + fmtMoney(e.seal_amount) + '</td></tr>';
@@ -240,7 +240,8 @@
 
   /* 策略模型：命中 + 买点 */
   function vStrategy(view) {
-    var top = (view.strategy_top || []).map(function (e, i) {
+    var topEntries = view.strategy_top || [];
+    var top = topEntries.map(function (e, i) {
       var models = Object.keys(e.models || {}).map(function (m) { return '<span class="badge b-model">' + esc(m) + '</span>'; }).join(' ');
       return '<tr><td>' + (i + 1) + '</td><td class="l">' + stk(e.stock_id, code6(e.stock_id)) + '</td>' +
         '<td class="l">' + models + '</td><td class="up">' + Number(e.score || 0).toFixed(1) + '</td>' +
@@ -248,7 +249,7 @@
     }).join('');
     var body = '<div class="tblwrap"><table><thead><tr><th>#</th><th class="l">代码</th><th class="l">命中模型</th><th>评分</th><th>买入区</th><th>目标</th></tr></thead><tbody>' +
       (top || '<tr><td colspan="6" class="muted">暂无策略命中（V0.3 策略引擎接入）</td></tr>') + '</tbody></table></div>';
-    return card('🎯 策略模型 · 最佳买点 TOP' + top.length, '17 模型池（config/strategy.json 可编辑）', body, true);
+    return card('🎯 策略模型 · 最佳买点 TOP' + topEntries.length, '17 模型池（config/strategy.json 可编辑）', body, true);
   }
 
   /* 历史选股：预警池 + 候选池（星级/确认/模型命中） */

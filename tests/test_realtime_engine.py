@@ -8,6 +8,7 @@ from services.collector.realtime_engine import (
     build_frozen_ctx,
     detect_events,
     load_pool,
+    load_frozen_context,
     save_pool,
     update_pool_from_events,
 )
@@ -150,3 +151,18 @@ def test_pool_roundtrip(tmp_path):
 
 def test_load_pool_missing(tmp_path):
     assert load_pool(str(tmp_path)) is None
+
+
+def test_load_frozen_context_uses_latest_previous_strategy(tmp_path):
+    facts = tmp_path / "facts"
+    day = facts / "2026-08-14"
+    day.mkdir(parents=True)
+    (day / "strategy.json").write_text(json.dumps({"SZ300001": {"models": {"breakout": 90}, "score": 88}}), encoding="utf-8")
+    kline = tmp_path / "kline"
+    kline.mkdir()
+    bars = [{"d": 20260813, "o": 10, "h": 10.4, "l": 9.9, "c": 10.2, "v": 100, "amt": 0},
+            {"d": 20260814, "o": 10.1, "h": 10.5, "l": 10, "c": 10.3, "v": 110, "amt": 0}]
+    (kline / "SZ300001.json").write_text(json.dumps({"bars": bars}), encoding="utf-8")
+    frozen, source_date = load_frozen_context(str(facts), "2026-08-17", str(kline))
+    assert source_date == "2026-08-14"
+    assert frozen["SZ300001"]["models"] == ["breakout"]

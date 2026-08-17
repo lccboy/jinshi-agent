@@ -10,13 +10,36 @@
 """
 import argparse
 import datetime
+import hashlib
 import json
 import os
 
 from .master_collector import build_stock_record, write_sectors_json  # noqa: F401（复用产出工具）
-from .normalize import stock_id
+from .normalize import is_equity_code, stock_id
 
-DEFAULT_SOURCE = r"H:\projects\金十AI题材库\.deploy_backups\pre_l2_sweep_20260813\all_themes_slim.json"
+DEFAULT_SOURCE_ROOT = r"H:\projects\金十AI题材库"
+
+
+def discover_theme_source(root=DEFAULT_SOURCE_ROOT):
+    """选择题材库当前产物；备份目录只允许显式通过 --source 使用。"""
+    path = os.path.abspath(os.path.join(root, "all_themes_slim.json"))
+    return path if os.path.isfile(path) else ""
+
+
+def _source_meta(source, collected_at=None):
+    mtime = datetime.datetime.fromtimestamp(os.path.getmtime(source)).astimezone()
+    collected = collected_at or datetime.datetime.now().astimezone().isoformat(timespec="seconds")
+    with open(source, "rb") as fh:
+        digest = hashlib.sha256(fh.read()).hexdigest()
+    today = datetime.datetime.now().astimezone().date()
+    return {
+        "source": "theme_repo",
+        "source_path": os.path.abspath(source),
+        "source_updated_at": mtime.isoformat(timespec="seconds"),
+        "collected_at": collected,
+        "source_hash": digest,
+        "freshness": "fresh" if (today - mtime.date()).days <= 1 else "stale",
+    }
 
 
 def parse_theme_dump(dump, updated_at=None):
@@ -46,7 +69,7 @@ def parse_theme_dump(dump, updated_at=None):
         codes = []
         for m in members:
             c = str(m.get("c", "") or "").strip().zfill(6)
-            if len(c) == 6 and c.isdigit():
+            if is_equity_code(c):
                 sid = stock_id(c)
                 codes.append(sid)
                 stock_names.setdefault(sid, str(m.get("n", "")))
@@ -59,7 +82,7 @@ def _codes(rows):
     out = []
     for m in rows or []:
         c = str(m.get("c", "") or "").strip().zfill(6)
-        if len(c) == 6 and c.isdigit():
+        if is_equity_code(c):
             out.append(stock_id(c))
     return out
 
@@ -67,6 +90,9 @@ def _codes(rows):
 def merge_themes_into_master(stocks, themes, theme_stocks, stock_names, updated_at=None):
     """回写 stocks.json：补缺失个股（题材库成员）+ `current.themes` 去重。"""
     updated_at = updated_at or datetime.date.today().strftime("%Y-%m-%d")
+    # 题材源对 current.themes 拥有字段所有权：先清空再按最新索引重建，避免退出题材后残留。
+    for rec in stocks.values():
+        rec.setdefault("current", {})["themes"] = []
     for tid, codes in theme_stocks.items():
         for sid in codes:
             rec = stocks.get(sid)
@@ -82,11 +108,12 @@ def merge_themes_into_master(stocks, themes, theme_stocks, stock_names, updated_
     return stocks
 
 
-def collect(source, out_dir):
+def collect(source, out_dir, collected_at=None):
     """题材库文件 → 三个产出。返回计数 dict。"""
+    meta = _source_meta(source, collected_at)
     with open(source, encoding="utf-8") as fh:
         dump = json.load(fh)
-    themes, theme_stocks, stock_names = parse_theme_dump(dump)
+    themes, theme_stocks, stock_names = parse_theme_dump(dump, meta["source_updated_at"][:10])
 
     os.makedirs(out_dir, exist_ok=True)
     with open(os.path.join(out_dir, "themes.json"), "w", encoding="utf-8") as fh:
@@ -108,21 +135,33 @@ def collect(source, out_dir):
     with open(stocks_path, "w", encoding="utf-8") as fh:
         json.dump(stocks, fh, ensure_ascii=False, indent=2)
 
-    return {"themes": len(themes), "theme_stocks": len(theme_stocks),
+    manifest_path = os.path.abspath(os.path.join(out_dir, "..", "manifest.json"))
+    manifest = {}
+    if os.path.exists(manifest_path):
+        with open(manifest_path, encoding="utf-8") as fh:
+            manifest = json.load(fh)
+    meta["count"] = len(themes)
+    manifest["themes"] = meta
+    with open(manifest_path, "w", encoding="utf-8") as fh:
+        json.dump(manifest, fh, ensure_ascii=False, indent=2)
+
+    return {"themes": len(themes), "theme_stocks": len(theme_stocks), "freshness": meta["freshness"],
             "stocks_before": before, "stocks_after": len(stocks)}
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description="题材字典采集（theme_collector）")
-    ap.add_argument("--source", default=DEFAULT_SOURCE, help="题材库 all_themes_slim.json 路径")
+    ap.add_argument("--source", default="", help="题材库 all_themes_slim.json 路径（默认自动选择当前产物）")
     ap.add_argument("--out", default="data/normalized", help="输出目录（默认 data/normalized）")
     args = ap.parse_args(argv)
-    if not os.path.exists(args.source):
-        print(f"[ERROR] 题材库文件不存在: {args.source}")
+    source = args.source or discover_theme_source()
+    if not source or not os.path.exists(source):
+        print(f"[ERROR] 题材库当前文件不存在: {source or DEFAULT_SOURCE_ROOT}")
         return 1
-    report = collect(args.source, args.out)
+    report = collect(source, args.out)
     print(f"[OK] 题材={report['themes']} 题材成分索引={report['theme_stocks']} "
-          f"个股 {report['stocks_before']} → {report['stocks_after']}（新增 {report['stocks_after'] - report['stocks_before']}）")
+          f"个股 {report['stocks_before']} → {report['stocks_after']}（新增 {report['stocks_after'] - report['stocks_before']}）"
+          f" freshness={report['freshness']} source={source}")
     return 0
 
 

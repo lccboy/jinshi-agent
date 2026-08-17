@@ -130,6 +130,15 @@ data/
 
 ### 3.4 主数据采集与增量更新
 
+主数据各属性按来源分组更新，采集器不得重建整条股票记录：KPL 负责身份、ST、板块和行业；题材采集负责 `current.themes`；TDX/交易所负责 `list_date`。题材全量刷新时先清空旧题材归属再按最新索引重建，避免退出题材后残留。
+
+`updated_at` 表示该属性组对应的源数据日期，不得用程序运行日期伪装新鲜度。运行清单同时记录：
+
+- `source_updated_at`：源文件或接口数据实际时间；
+- `collected_at`：本系统采集/处理时间；
+- `source_hash`：文件源内容 SHA-256；
+- `freshness`：`fresh` / `stale`。
+
 | 主数据 | API 采集 | 补充 / 推导 |
 |---|---|---|
 | `sectors.json` | `RealRankingInfo` 动态分页（概念 267 + 行业 58）+ `SonPlate_Info`（子板块） | `type` 由板块 ID 前缀推导 |
@@ -148,7 +157,14 @@ data/
 {
   "stocks":  { "last_full": "2026-08-14", "last_incr": "2026-08-15" },
   "sectors": { "last_full": "2026-08-14" },
-  "themes":  { "last_full": "2026-08-14" }
+  "themes":  {
+    "source": "theme_repo",
+    "source_updated_at": "2026-08-14T11:40:52+08:00",
+    "collected_at": "2026-08-14T15:20:00+08:00",
+    "source_hash": "<sha256>",
+    "freshness": "fresh",
+    "count": 248
+  }
 }
 ```
 

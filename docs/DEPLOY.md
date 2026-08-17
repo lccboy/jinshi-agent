@@ -11,6 +11,15 @@
 powershell -ExecutionPolicy Bypass -File .\deploy\deploy-local.ps1
 ```
 
+若 Windows 任务计划注册被策略拒绝，可安装无需管理员权限的用户态调度（当前用户登录自启）：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\install-user-daemon.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\status.ps1
+```
+
+调度心跳位于 `data/runs/scheduler_state.json`，阶段日志位于 `data/runs/logs/daily_runner.log`。盘前主数据固定读取上一交易日 KPL 历史截面，空响应或低于既有活跃股票数 80% 时拒绝写盘。
+
 一键完成：构建 dist → 复制到 `C:\nginx\html\DSH` → 安装 nginx 配置（旧配置自动备份）→ 启动 API 服务(8787) + nginx(8088) → 打印验收结果。
 
 ## 部署拓扑
@@ -106,6 +115,23 @@ Remove-Item -LiteralPath .\DSH -Recurse -Force
 Rename-Item -LiteralPath .\DSH.backup.时间 .\DSH
 ```
 
+本机部署会在 `C:\nginx\backups\DSH.<时间>` 自动保留现网版本。明确选择备份后执行：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\deploy\rollback-local.ps1 -Backup DSH.20260817-093500
+```
+
+V0.5 数据备份、校验和隔离恢复：
+
+```powershell
+python -m services.collector.production_ops backup --root . --out backups --keep 14
+python -m services.collector.production_ops verify-backup backups\<时间>
+python -m services.collector.production_ops restore backups\<时间> --target D:\restore-drill
+python -m services.collector.production_ops scan-secrets --root .
+```
+
+日备份覆盖不可再生主数据、事实、归档、Web 发布层、运行清单和配置。`data/kline` 为约 2.3GB 的可重建派生缓存，默认不重复备份，灾备时从配置的 TDX vipdoc 重新同步。
+
 ## nginx 配置
 
 配置模板：`deploy/nginx-dsh.conf`（复制到 `C:\nginx\conf\nginx.conf`，`deploy-local.ps1` 自动安装并备份旧配置）。
@@ -161,6 +187,35 @@ http://服务器IP:8088/DSH/
 - 没有静态资源 404
 - 股票代码链接使用 `http://www.treeid/code_XXXXXX`
 - API 路径可访问 `/DSH/api/health`、`/DSH/api/agent/summary`（Agent 聚合摘要）
+
+## V0.3 每日任务
+
+以管理员 PowerShell 注册四阶段任务：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy\install-tasks.ps1
+```
+
+默认工作日执行：09:00 `premarket`、09:14 `intraday`、15:10 `postmarket`、15:20 `archive`。每阶段由 `daily_runner.py` 幂等记录；成功阶段不会重复执行，失败阶段下次调用自动重试，任务本身最多重启三次。
+
+检查计划任务、最近运行、质量门禁和服务健康：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy\status.ps1
+```
+
+补跑指定阶段：
+
+```powershell
+python -m services.collector.daily_runner --date 2026-08-17 --phase postmarket --force
+python -m services.collector.daily_runner --date 2026-08-17 --phase archive --force
+```
+
+卸载任务：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy\install-tasks.ps1 -Uninstall
+```
 
 ## V0.2 统一数据服务（market-data-service）
 

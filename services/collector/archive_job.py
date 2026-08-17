@@ -11,6 +11,7 @@ import json
 import os
 import re
 import shutil
+import tempfile
 
 # quotes 63 字段 → 页面展示列（DATA_MODEL §13.2）
 QUOTES_KEEP = ("price", "change", "turnover", "volume", "volRatio", "mainNet",
@@ -18,6 +19,8 @@ QUOTES_KEEP = ("price", "change", "turnover", "volume", "volRatio", "mainNet",
 MIN_SECTOR_STRENGTH = 4000
 MONEY_TOP_N = 30
 STRATEGY_TOP_N = 20
+WEB_ALERT_TOP_N = 30
+WEB_CANDIDATE_TOP_N = 100
 
 
 # ---------------- 纯函数（TDD 覆盖） ----------------
@@ -60,8 +63,10 @@ def build_day_view(date_str, facts):
     ]
 
     limitup = facts.get("limitup") or {}
+    stock_names = facts.get("stock_names") or {}
     view["limitup"] = [
-        {"stock_id": sid, **{k: e[k] for k in ("reason", "boards", "concepts", "primary", "sourceCount",
+        {"stock_id": sid, "name": stock_names.get(sid, sid),
+         **{k: e[k] for k in ("reason", "boards", "concepts", "primary", "sourceCount",
                                                "first_time", "seal_amount") if k in e}}
         for sid, e in sorted(limitup.items(), key=lambda kv: _board_height(kv[1].get("boards")), reverse=True)
     ]
@@ -101,6 +106,10 @@ def build_day_view(date_str, facts):
             confirm = compute_confirm(secs, sectors_fact, money_flow, leading)
             entry["confirm"] = confirm
             entry["stars"] = 4 if all(confirm.values()) else (3 if sum(confirm.values()) >= 2 else 2)
+    web_pools = pools.get("pools", {})
+    for key, limit in (("alert", WEB_ALERT_TOP_N), ("candidate", WEB_CANDIDATE_TOP_N)):
+        ranked = sorted((web_pools.get(key) or {}).items(), key=lambda item: item[1].get("score", 0), reverse=True)
+        web_pools[key] = dict(ranked[:limit])
     view["pools"] = pools
 
     return view
@@ -133,6 +142,8 @@ def build_stocks_slim(stocks):
     """5146 只 → {sid: {n 名称, s 板块ID[], t 题材ID[]}}：成分股展开用的体积裁剪（V0.3.0 UI）。"""
     slim = {}
     for sid, rec in stocks.items():
+        if rec.get("status") in ("source_missing", "invalid_instrument"):
+            continue
         cur = rec.get("current", {}) or {}
         slim[sid] = {"n": rec.get("name", sid), "s": list(cur.get("sectors", [])), "t": list(cur.get("themes", []))}
     return slim
@@ -161,7 +172,25 @@ def write_master_lib(norm_dir, web_dir):
             fh.write(gzip.compress(raw, compresslevel=6))
     return [p[0] for p in pairs]
 
-def write_day_view(date_str, view, out_dir):
+def promote_day_view(date_str, out_dir):
+    """质量门禁通过后，将已生成的历史日视图原子发布为 latest。"""
+    source = os.path.join(out_dir, f"day_{date_str}.json")
+    if not os.path.isfile(source):
+        raise FileNotFoundError(source)
+    with open(source, "rb") as fh:
+        raw = fh.read()
+    fd, temp_path = tempfile.mkstemp(prefix="day_latest_", suffix=".json", dir=out_dir)
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(raw)
+        os.replace(temp_path, os.path.join(out_dir, "day_latest.json"))
+    finally:
+        if os.path.exists(temp_path):
+            os.unlink(temp_path)
+    return os.path.join(out_dir, "day_latest.json")
+
+
+def write_day_view(date_str, view, out_dir, publish_latest=True):
     """写 day_<date>.json + .gz + day_latest.json，更新 index.json 日期清单。"""
     os.makedirs(out_dir, exist_ok=True)
     raw = json.dumps(view, ensure_ascii=False).encode("utf-8")
@@ -173,8 +202,9 @@ def write_day_view(date_str, view, out_dir):
     with open(gz_path, "wb") as fh:
         fh.write(gzip.compress(raw, compresslevel=6))
 
-    with open(os.path.join(out_dir, "day_latest.json"), "wb") as fh:
-        fh.write(raw)
+    latest_path = os.path.join(out_dir, "day_latest.json")
+    if publish_latest:
+        promote_day_view(date_str, out_dir)
 
     index_path = os.path.join(out_dir, "index.json")
     idx = {"days": []}
@@ -188,7 +218,7 @@ def write_day_view(date_str, view, out_dir):
     with open(index_path, "w", encoding="utf-8") as fh:
         json.dump(idx, fh, ensure_ascii=False, indent=2)
 
-    return [day_path, gz_path, os.path.join(out_dir, "day_latest.json"), index_path]
+    return [day_path, gz_path, latest_path, index_path]
 
 
 # ---------------- 归档编排 ----------------
@@ -223,11 +253,16 @@ def read_facts(date_str, facts_dir):
     return facts
 
 
-def archive_day(date_str, facts_dir, web_dir, intraday_dir, archive_dir):
+def archive_day(date_str, facts_dir, web_dir, intraday_dir, archive_dir, publish_latest=True):
     """归档编排：facts → 视图层（day + detail + 索引 + master lib）→ intraday 移入 archive。返回 (view, paths)。"""
     facts = read_facts(date_str, facts_dir)
+    stocks_path = os.path.join(os.path.dirname(facts_dir), "normalized", "stocks.json")
+    if os.path.exists(stocks_path):
+        with open(stocks_path, encoding="utf-8") as fh:
+            stocks = json.load(fh)
+        facts["stock_names"] = {sid: rec.get("name", sid) for sid, rec in stocks.items()}
     view = build_day_view(date_str, facts)
-    paths = write_day_view(date_str, view, web_dir)
+    paths = write_day_view(date_str, view, web_dir, publish_latest=publish_latest)
     paths += write_detail_view(date_str, build_detail_view(date_str, facts), web_dir)
     paths += [os.path.join(web_dir, n) for n in
               write_master_lib(os.path.join(os.path.dirname(facts_dir), "normalized"), web_dir)]
@@ -258,9 +293,11 @@ def main(argv=None):
     ap.add_argument("--intraday", default="data/intraday", help="盘中快照目录（默认 data/intraday）")
     ap.add_argument("--archive", default="data/archive", help="归档目录（默认 data/archive）")
     ap.add_argument("--verify", action="store_true", help="输出体积校验（≤200KB raw / ≤80KB gz）")
+    ap.add_argument("--stage-only", action="store_true", help="只生成历史日视图，不更新 day_latest.json")
     args = ap.parse_args(argv)
 
-    view, paths = archive_day(args.date, args.facts, args.web, args.intraday, args.archive)
+    view, paths = archive_day(args.date, args.facts, args.web, args.intraday, args.archive,
+                              publish_latest=not args.stage_only)
     print(f"[OK] {args.date} 视图层已生成: day_{args.date}.json + .gz")
     if args.verify:
         ok, report = verify_view(view, paths[0], paths[1])

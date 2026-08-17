@@ -5,6 +5,7 @@ apps/web/data/*
 
 # 构建产物
 dist/
+backups/
 
 # Python
 __pycache__/

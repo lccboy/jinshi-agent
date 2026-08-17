@@ -97,6 +97,30 @@ def build_frozen_ctx(sid, bars, strategy):
     }
 
 
+def load_frozen_context(facts_dir, date_str, kline_dir):
+    """加载目标交易日前最近一个有策略结果的交易日，作为盘中冻结上下文。"""
+    candidates = []
+    if os.path.isdir(facts_dir):
+        candidates = sorted((name for name in os.listdir(facts_dir)
+                             if name < date_str and os.path.isfile(os.path.join(facts_dir, name, "strategy.json"))),
+                            reverse=True)
+    if not candidates:
+        return {}, None
+    source_date = candidates[0]
+    with open(os.path.join(facts_dir, source_date, "strategy.json"), encoding="utf-8") as fh:
+        strategy = json.load(fh)
+    frozen = {}
+    for sid in strategy:
+        path = os.path.join(kline_dir, f"{sid}.json")
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8") as fh:
+            bars = json.load(fh).get("bars", [])
+        if bars:
+            frozen[sid] = build_frozen_ctx(sid, bars, strategy)
+    return frozen, source_date
+
+
 def _ts_now():
     return datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
 
@@ -211,23 +235,10 @@ def main(argv=None):
     ap.add_argument("--universe-file", help="股票名单（每行 stock_id；缺省读昨日 strategy.json 键）")
     args = ap.parse_args(argv)
 
-    # 昨日定格：读昨日 strategy.json + kline
-    day_dir = os.path.join(args.facts, args.date)
-    strat_path = os.path.join(day_dir, "strategy.json")
-    strategy = {}
-    if os.path.exists(strat_path):
-        with open(strat_path, encoding="utf-8") as fh:
-            strategy = json.load(fh)
-
-    import glob
-    frozen = {}
-    for sid in strategy:
-        kline_path = os.path.join(args.kline, f"{sid}.json")
-        if not os.path.exists(kline_path):
-            continue
-        with open(kline_path, encoding="utf-8") as fh:
-            bars = json.load(fh)["bars"]
-        frozen[sid] = build_frozen_ctx(sid, bars, strategy)
+    frozen, source_date = load_frozen_context(args.facts, args.date, args.kline)
+    if not frozen:
+        print(f"[ERROR] {args.date} 之前没有可用 strategy/kline 冻结上下文")
+        return 1
 
     # 行情输入
     if args.quotes:
@@ -243,7 +254,7 @@ def main(argv=None):
     by_type = {}
     for e in events:
         by_type[e["type"]] = by_type.get(e["type"], 0) + 1
-    print(f"[OK] 扫描 {len(quotes)} 只，新事件 {len(events)} 个：{by_type}")
+    print(f"[OK] 冻结日={source_date} 扫描 {len(quotes)} 只，新事件 {len(events)} 个：{by_type}")
     return 0
 
 

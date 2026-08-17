@@ -10,18 +10,22 @@
 （含 code/name/_blockId 的真实成分股行），用于无凭据时的真实数据校验。
 """
 import argparse
+import concurrent.futures
 import json
 import os
+import struct
 import sys
 import urllib.parse
 import urllib.request
+import time
 from datetime import datetime
 
-from .normalize import sector_type, stock_id
+from .normalize import is_equity_code, sector_type, stock_id
 
 # 常量（DATA_MODEL §9）
 KPL_UA = "Dalvik/2.1.0 (Linux; U; Android 12; ALN-AL00 Build/W528JS)"
-KPL_BASE = "https://apphwshhq.longhuvip.com/w1/api/index.php"
+KPL_HQ_BASE = "https://apphwhq.longhuvip.com/w1/api/index.php"
+KPL_HIS_BASE = "https://apphis.longhuvip.com/w1/api/index.php"
 API_VERSION = "w44"
 
 
@@ -50,7 +54,7 @@ def merge_universe(rows):
         if not isinstance(r, dict):
             continue
         code = str(r.get("code", "")).strip().zfill(6)
-        if not code or code == "000000":
+        if not is_equity_code(code) or code == "000000":
             continue
         sid = stock_id(code)
         rec = uni.setdefault(sid, {"code": code, "name": str(r.get("name", "")), "sectors": set()})
@@ -60,11 +64,11 @@ def merge_universe(rows):
     return uni
 
 
-def build_stock_record(code, name, sector_ids, updated_at):
+def build_stock_record(code, name, sector_ids, updated_at, sectors=None):
     """universe 记录 → DATA_MODEL §3.1 完整主数据记录。"""
     code = str(code).zfill(6)
     market, board = derive_market_board(code)
-    return {
+    record = {
         "stock_id": stock_id(code),
         "code": code,
         "name": str(name),
@@ -73,6 +77,9 @@ def build_stock_record(code, name, sector_ids, updated_at):
         "treeid": code,
         "hexin": code,
         "is_st": is_st(name),
+        "status": "active",
+        "first_seen": updated_at,
+        "last_seen": updated_at,
         "current": {
             "themes": [],
             "sectors": sorted(sector_ids),
@@ -80,15 +87,23 @@ def build_stock_record(code, name, sector_ids, updated_at):
         },
         "updated_at": updated_at,
     }
+    industry_names = [sectors[s]["name"] for s in sorted(sector_ids)
+                      if sectors and s in sectors and sectors[s].get("type") == "industry"
+                      and sectors[s].get("name")]
+    if industry_names:
+        record["industry"] = industry_names[0]
+    return record
 
 
-def build_records(universe, updated_at):
-    return {sid: build_stock_record(v["code"], v["name"], v["sectors"], updated_at) for sid, v in universe.items()}
+def build_records(universe, updated_at, sectors=None):
+    return {sid: build_stock_record(v["code"], v["name"], v["sectors"], updated_at, sectors)
+            for sid, v in universe.items()}
 
 
 def diff_universe(prev, new):
     """prev: {sid: 完整记录}; new: {sid: universe记录} → 变更清单（新增/更名/ST/归属变化）。"""
-    changes = {"added": [], "renamed": [], "st": [], "sectors": []}
+    changes = {"added": [], "renamed": [], "st": [], "sectors": [],
+               "removed": sorted(set(prev) - set(new))}
     for sid, rec in new.items():
         if sid not in prev:
             changes["added"].append(sid)
@@ -154,31 +169,47 @@ def update_manifest(out_dir, key, value):
 
 # ---------------- 网络采集（KPL API，需有效凭据） ----------------
 
-def _request(params):
+def _request(params, base=KPL_HQ_BASE, attempts=3):
     params.setdefault("PhoneOSNew", "1")
     params.setdefault("apiv", API_VERSION)
-    params["UserID"] = os.environ.get("KPL_USER_ID", "")
-    params["Token"] = os.environ.get("KPL_TOKEN", "")
-    body = urllib.parse.urlencode(params).encode()
-    req = urllib.request.Request(KPL_BASE, data=body, headers={"User-Agent": KPL_UA, "Connection": "Keep-Alive"})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        return json.loads(resp.read().decode("utf-8"))
+    if os.environ.get("KPL_USER_ID"):
+        params["UserID"] = os.environ["KPL_USER_ID"]
+    if os.environ.get("KPL_TOKEN"):
+        params["Token"] = os.environ["KPL_TOKEN"]
+    url = base + "?" + urllib.parse.urlencode(params)
+    last = None
+    for attempt in range(attempts):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": KPL_UA, "Connection": "Keep-Alive"})
+            with urllib.request.urlopen(req, timeout=20) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            last = exc
+            if attempt + 1 < attempts:
+                time.sleep(2 ** attempt)
+    raise RuntimeError(f"KPL request failed after {attempts} attempts: {last}")
 
 
 def fetch_plates():
-    """RealRankingInfo 动态分页 → [{id, name}]。"""
+    """RealRankingInfo 动态分页：ZSType=7 综合/概念 + ZSType=4 完整行业。"""
     plates = []
-    page = 0
-    while page < 20:
-        data = _request({"Order": "1", "a": "RealRankingInfo", "st": "30", "c": "ZhiShuRanking",
-                         "Index": str(page), "Type": "1", "ZSType": "7"})
-        rows = data.get("list", []) or []
-        if not rows:
-            break
-        for item in rows:
-            if len(item) >= 2:
-                plates.append({"id": str(item[0]), "name": str(item[1])})
-        page += 1
+    seen = set()
+    for zstype, forced_type in (("7", None), ("4", "industry")):
+        offset = 0
+        while offset < 600:
+            data = _request({"Order": "1", "a": "RealRankingInfo", "st": "30", "c": "ZhiShuRanking",
+                             "Index": str(offset), "Type": "1", "ZSType": zstype})
+            rows = data.get("list", []) or []
+            if not rows:
+                break
+            for item in rows:
+                if len(item) >= 2:
+                    sid = str(item[0])
+                    if sid not in seen:
+                        seen.add(sid)
+                        plates.append({"id": sid, "name": str(item[1]),
+                                       "type": forced_type or sector_type(sid), "zstype": zstype})
+            offset += 30
     return plates
 
 
@@ -189,7 +220,7 @@ def fetch_stocks(plate_id, date_str):
     for t in range(20):
         data = _request({"Order": "1", "a": "ZhiShuStockList_W8", "st": "30", "c": "ZhiShuRanking",
                          "Type": str(t), "PlateID": plate_id, "Date": date_str, "IsKZZType": "0",
-                         "TSZB_Type": "0", "filterType": "0", "TSZB": "0"})
+                         "TSZB_Type": "0", "filterType": "0", "TSZB": "0", "old": "1"}, base=KPL_HIS_BASE)
         for item in data.get("list", []) or []:
             if len(item) < 2:
                 continue
@@ -203,23 +234,56 @@ def fetch_stocks(plate_id, date_str):
 
 # ---------------- 编排 ----------------
 
-def collect_from_rows(rows, out_dir, updated_at=None, mode="full"):
+def collect_from_rows(rows, out_dir, updated_at=None, mode="full", sectors=None):
     updated_at = updated_at or datetime.now().strftime("%Y-%m-%d")
     universe = merge_universe(rows)
     if mode == "incr":
         prev = load_existing(out_dir)
+        previous_active = sum(rec.get("status") not in ("source_missing", "invalid_instrument")
+                              for rec in prev.values())
+        minimum = max(1, int(previous_active * 0.8))
+        if previous_active and len(universe) < minimum:
+            raise ValueError(f"主源股票池异常: incoming={len(universe)} previous_active={previous_active} minimum={minimum}")
         changes = diff_universe(prev, universe)
         records = dict(prev)
-        records.update(build_records(universe, updated_at))
+        for sid, item in universe.items():
+            incoming = build_stock_record(item["code"], item["name"], item["sectors"], updated_at, sectors)
+            if sid not in records:
+                incoming["source_status"] = {"kpl": "active"}
+                records[sid] = incoming
+                continue
+            rec = records[sid]
+            old_name = rec.get("name", "")
+            if old_name and old_name != item["name"]:
+                history = rec.setdefault("name_history", [])
+                if not history or history[-1].get("name") != old_name:
+                    history.append({"name": old_name, "ended_at": updated_at})
+            # KPL 只更新其权威字段，保留 themes/list_date/跨源元数据等补充字段。
+            rec.update({k: incoming[k] for k in ("stock_id", "code", "name", "market", "board",
+                                                  "treeid", "hexin", "is_st")})
+            cur = rec.setdefault("current", {})
+            cur["sectors"] = incoming["current"]["sectors"]
+            cur.setdefault("themes", [])
+            cur["updated_at"] = updated_at
+            rec["updated_at"] = updated_at
+            rec["status"] = "active"
+            rec.setdefault("first_seen", updated_at)
+            rec["last_seen"] = updated_at
+            if incoming.get("industry"):
+                rec["industry"] = incoming["industry"]
+            rec.setdefault("source_status", {})["kpl"] = "active"
+        for sid in changes["removed"]:
+            records[sid].setdefault("source_status", {})["kpl"] = "missing"
+            records[sid]["status"] = "source_missing"
     else:
         changes = {}
-        records = build_records(universe, updated_at)
+        records = build_records(universe, updated_at, sectors)
     write_normalized(records, out_dir)
     update_manifest(out_dir, "last_incr" if mode == "incr" else "last_full", updated_at)
     return len(universe), changes
 
 
-def verify(records):
+def verify(records, sectors=None):
     """校验：数量 + 字段形状。返回 (ok, report)。"""
     errors = []
     for sid, rec in records.items():
@@ -232,7 +296,22 @@ def verify(records):
         if not isinstance(rec.get("is_st"), bool):
             errors.append(f"{sid}: is_st 非 bool")
     ok = not errors
-    report = {"stocks": len(records), "sectors": sorted({s for r in records.values() for s in r["current"]["sectors"]}),
+    active = [r for r in records.values() if r.get("status") not in ("source_missing", "invalid_instrument")]
+    all_sector_ids = sorted({s for r in active for s in r.get("current", {}).get("sectors", [])})
+    total = len(active)
+    no_sectors = sum(not r.get("current", {}).get("sectors") for r in active)
+    sector_types = {}
+    for value in (sectors or {}).values():
+        kind = value.get("type", "unknown")
+        sector_types[kind] = sector_types.get(kind, 0) + 1
+    report = {"stocks": total, "sectors": all_sector_ids,
+              "stocks_without_sectors": no_sectors,
+              "master_records": len(records),
+              "source_missing": len(records) - total,
+              "stocks_without_industry": sum(not r.get("industry") for r in active),
+              "stocks_without_list_date": sum(not r.get("list_date") for r in active),
+              "sector_coverage": round((total - no_sectors) / total, 6) if total else 0.0,
+              "sector_types": sector_types,
               "errors": errors[:10], "error_count": len(errors)}
     return ok, report
 
@@ -264,6 +343,50 @@ def write_sectors_json(secs, out_dir):
     return path
 
 
+def load_sectors(out_dir):
+    path = os.path.join(out_dir, "sectors.json")
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def backfill_list_dates_from_vipdoc(records, vipdoc_root):
+    """读取 TDX `.day` 首条记录日期回填上市日期；不解析价格、不推测缺失值。"""
+    report = {"updated": 0, "missing": 0, "invalid": 0}
+    for sid, rec in records.items():
+        if not is_equity_code(rec.get("code", sid[2:])):
+            rec["status"] = "invalid_instrument"
+            rec.setdefault("source_status", {})["kpl"] = "invalid_instrument"
+            report["invalid"] += 1
+            continue
+        kpl_status = rec.get("source_status", {}).get("kpl")
+        if kpl_status == "missing":
+            rec["status"] = "source_missing"
+        elif kpl_status == "active":
+            rec["status"] = "active"
+        market = sid[:2].lower()
+        code = sid[2:]
+        path = os.path.join(vipdoc_root, market, "lday", f"{market}{code}.day")
+        if not os.path.isfile(path):
+            report["missing"] += 1
+            continue
+        try:
+            with open(path, "rb") as fh:
+                raw = fh.read(4)
+            value = struct.unpack("<I", raw)[0]
+            date = datetime.strptime(str(value), "%Y%m%d").date().isoformat()
+        except (OSError, struct.error, ValueError):
+            report["invalid"] += 1
+            continue
+        rec["list_date"] = date
+        rec.setdefault("sources", {})["listing"] = {
+            "source": "tdx_vipdoc", "source_path": os.path.abspath(path), "data_as_of": date
+        }
+        report["updated"] += 1
+    return report
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="主数据采集（master_collector）")
     ap.add_argument("--from-kpl", help="离线：读取现网 kpl_<date>_stocks.json（无需凭据）")
@@ -273,7 +396,23 @@ def main(argv=None):
     ap.add_argument("--out", default="data/normalized", help="输出目录（默认 data/normalized）")
     ap.add_argument("--date", default=datetime.now().strftime("%Y-%m-%d"), help="数据日期")
     ap.add_argument("--verify", action="store_true", help="采集后校验并输出统计")
+    ap.add_argument("--backfill-vipdoc", help="从 TDX vipdoc `.day` 首条记录回填 list_date")
+    ap.add_argument("--workers", type=int, default=10, help="网络全量采集并发板块数（默认 10）")
     args = ap.parse_args(argv)
+
+    if args.backfill_vipdoc:
+        records = load_existing(args.out)
+        if not records:
+            print(f"[ERROR] 未找到主数据: {os.path.join(args.out, 'stocks.json')}")
+            return 1
+        report = backfill_list_dates_from_vipdoc(records, args.backfill_vipdoc)
+        write_normalized(records, args.out)
+        print(f"[OK] list_date 回填={report['updated']} 缺文件={report['missing']} 无效={report['invalid']}")
+        if args.verify:
+            ok, quality = verify(records, load_sectors(args.out))
+            print(f"[VERIFY] {'PASS' if ok else 'FAIL'} list_date缺失={quality['stocks_without_list_date']}")
+            return 0 if ok else 1
+        return 0
 
     if args.kpl_daily:
         with open(args.kpl_daily, encoding="utf-8") as fh:
@@ -287,17 +426,30 @@ def main(argv=None):
 
     if args.from_kpl:
         rows, fetched_at = read_kpl_stocks_file(args.from_kpl)
-        count, changes = collect_from_rows(rows, args.out, mode="incr" if args.incr else "full")
+        count, changes = collect_from_rows(rows, args.out, mode="incr" if args.incr else "full",
+                                           sectors=load_sectors(args.out))
     elif args.full or args.incr:
-        if not os.environ.get("KPL_TOKEN"):
-            print("[ERROR] 网络模式需要 KPL_TOKEN / KPL_USER_ID（env），无凭据请用 --from-kpl 离线校验")
-            return 1
         date_str = args.date
         plates = fetch_plates()
-        rows = []
-        for p in plates:
-            rows.extend(fetch_stocks(p["id"], date_str))
-        count, changes = collect_from_rows(rows, args.out, mode="incr" if args.incr else "full")
+        # 保留 SonPlate_Info 已采集的二级板块，仅刷新本次 RealRankingInfo 一级字典。
+        sector_defs = load_sectors(args.out)
+        sector_defs.update({p["id"]: {"sector_id": p["id"], "name": p["name"], "parent_id": None,
+                                       "level": 1, "type": p["type"], "source": "kpl"} for p in plates})
+        write_sectors_json(sector_defs, args.out)
+        rows, failed = [], []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max(1, args.workers)) as executor:
+            futures = {executor.submit(fetch_stocks, p["id"], date_str): p for p in plates}
+            for future in concurrent.futures.as_completed(futures):
+                plate = futures[future]
+                try:
+                    rows.extend(future.result())
+                except Exception as exc:
+                    failed.append((plate["id"], str(exc)))
+        if failed:
+            print(f"[ERROR] 板块成分采集失败 {len(failed)}/{len(plates)}: {failed[:10]}")
+            return 1
+        count, changes = collect_from_rows(rows, args.out, mode="incr" if args.incr else "full",
+                                           sectors=sector_defs)
     else:
         ap.print_help()
         return 1
@@ -308,9 +460,10 @@ def main(argv=None):
               f"st={len(changes.get('st', []))} sectors={len(changes.get('sectors', []))}")
 
     if args.verify:
-        ok, report = verify(load_existing(args.out))
+        ok, report = verify(load_existing(args.out), load_sectors(args.out))
         print(f"[VERIFY] {'PASS' if ok else 'FAIL'} 股票数={report['stocks']} 板块数={len(report['sectors'])} "
-              f"错误数={report['error_count']}")
+              f"板块覆盖={report['sector_coverage']:.1%} 无行业={report['stocks_without_industry']} "
+              f"无上市日期={report['stocks_without_list_date']} 错误数={report['error_count']}")
         return 0 if ok else 1
     return 0
 

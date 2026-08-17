@@ -4,6 +4,7 @@ import os
 
 from services.collector.kline_sync import (
     adjust_bars,
+    load_universe_from_stocks,
     parse_day_file,
     to_kline_bars,
     write_kline_json,
@@ -74,3 +75,10 @@ def test_write_kline_json_shape(tmp_path):
     assert len(doc["bars"]) == 5
     assert set(doc["bars"][0]) == {"d", "o", "h", "l", "c", "v", "amt"}
     assert doc["bars"][-1]["c"] == 10.25  # 无事件时前复权=原价
+
+
+def test_load_universe_from_stocks(tmp_path):
+    path = tmp_path / "stocks.json"
+    path.write_text(json.dumps({"SZ300487": {"code": "300487", "status": "active"},
+                                "SH600000": {"code": "600000", "status": "source_missing"}}), encoding="utf-8")
+    assert load_universe_from_stocks(str(path)) == ["300487"]

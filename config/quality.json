@@ -1,0 +1,4 @@
+{
+  "min_sector_coverage": 0.90,
+  "required_facts": ["meta", "limitup", "membership", "strategy", "events", "pool"]
+}

@@ -11,6 +11,7 @@ from services.collector.archive_job import (
     trim_quotes,
     write_day_view,
     write_master_lib,
+    promote_day_view,
 )
 
 
@@ -74,6 +75,15 @@ def test_build_day_view_sorts_limitup_by_board_height():
     view = build_day_view("d", facts)
     assert view["limitup"][0]["stock_id"] == "SH600785"  # 4连板最前
     assert view["limitup"][-1]["stock_id"] == "SZ300487"  # 首板最后
+
+
+def test_build_day_view_includes_stock_name():
+    facts = {
+        "stock_names": {"SZ300487": "蓝晓科技"},
+        "limitup": {"SZ300487": {"reason": "存储", "boards": "首板"}},
+    }
+    view = build_day_view("2026-08-14", facts)
+    assert view["limitup"][0]["name"] == "蓝晓科技"
 
 
 def test_build_day_view_skips_missing_sections():
@@ -152,6 +162,12 @@ def test_build_stocks_slim():
     assert slim["SH600000"] == {"n": "浦发银行", "s": [], "t": []}
 
 
+def test_build_stocks_slim_excludes_source_missing():
+    stocks = {"SZ300487": {"name": "蓝晓科技", "status": "active", "current": {}},
+              "SH600000": {"name": "旧记录", "status": "source_missing", "current": {}}}
+    assert set(build_stocks_slim(stocks)) == {"SZ300487"}
+
+
 def test_write_master_lib(tmp_path):
     # normalized 字典 → web/ 出 4 个 .json + .gz（懒加载主数据）
     norm = tmp_path / "normalized"
@@ -170,3 +186,30 @@ def test_write_master_lib(tmp_path):
         assert (web / (name + ".gz")).exists(), name + ".gz"
     slim = json.loads((web / "stocks_slim.json").read_text(encoding="utf-8"))
     assert slim["SZ300487"]["n"] == "蓝晓科技"
+
+
+def test_day_view_can_be_staged_without_publishing_latest(tmp_path):
+    view = {"date": "2026-08-17", "sectors": [], "limitup": []}
+    write_day_view("2026-08-17", view, str(tmp_path), publish_latest=False)
+    assert (tmp_path / "day_2026-08-17.json").exists()
+    assert not (tmp_path / "day_latest.json").exists()
+    promote_day_view("2026-08-17", str(tmp_path))
+    assert json.loads((tmp_path / "day_latest.json").read_text(encoding="utf-8"))["date"] == "2026-08-17"
+
+
+def test_promote_day_view_is_atomic_and_requires_staged_file(tmp_path):
+    import pytest
+    with pytest.raises(FileNotFoundError):
+        promote_day_view("2026-08-17", str(tmp_path))
+
+
+def test_build_day_view_caps_large_pools():
+    pool = {"data_date": "2026-08-17", "pools": {
+        "alert": {f"A{i}": {"score": i} for i in range(50)},
+        "candidate": {f"C{i}": {"score": i} for i in range(150)},
+        "limitup": {}, "ladder": {}, "watchlist": {},
+    }}
+    view = build_day_view("2026-08-17", {"pool": pool})
+    assert len(view["pools"]["pools"]["alert"]) == 30
+    assert len(view["pools"]["pools"]["candidate"]) == 100
+    assert next(iter(view["pools"]["pools"]["candidate"])) == "C149"

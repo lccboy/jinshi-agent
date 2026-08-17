@@ -129,6 +129,18 @@ def load_membership(out_root):
     return {sid: list(rec.get("current", {}).get("sectors", [])) for sid, rec in stocks.items()}
 
 
+def cap_alert_pool(pools, top_n):
+    """落实 alert_pool.top_n：预警只保留最高分，其余降为候选而不丢失。"""
+    ranked = sorted((pools.get("alert") or {}).items(), key=lambda item: item[1].get("score", 0), reverse=True)
+    keep = ranked[:max(0, int(top_n))]
+    overflow = ranked[max(0, int(top_n)):]
+    pools["alert"] = dict(keep)
+    candidate = pools.setdefault("candidate", {})
+    for sid, entry in overflow:
+        candidate[sid] = entry
+    return pools
+
+
 def run_strategy(date_str, kline_dir, out_root, config_path="config/strategy.json", universe=None):
     cfg = load_config(config_path)
     facts = load_facts(date_str, out_root)
@@ -140,7 +152,15 @@ def run_strategy(date_str, kline_dir, out_root, config_path="config/strategy.jso
     index_ret20 = index_bars[-1]["c"] / index_bars[-21]["c"] - 1 if index_bars and len(index_bars) > 21 else 0.0
 
     if universe is None:
-        universe = [os.path.basename(p)[:-5] for p in glob.glob(os.path.join(kline_dir, "*.json"))]
+        stocks_path = os.path.join(out_root, "normalized", "stocks.json")
+        if os.path.exists(stocks_path):
+            with open(stocks_path, encoding="utf-8") as fh:
+                stocks = json.load(fh)
+            universe = [sid for sid, rec in stocks.items()
+                        if rec.get("status") not in ("source_missing", "invalid_instrument")]
+        else:
+            universe = [os.path.basename(p)[:-5] for p in glob.glob(os.path.join(kline_dir, "*.json"))
+                        if os.path.basename(p)[:-5].startswith(("SH", "SZ", "BJ"))]
     universe = [s for s in universe if s != index_sid]
 
     run_id = date_str.replace("-", "") + "_" + datetime.datetime.now().strftime("%H%M")
@@ -185,6 +205,8 @@ def run_strategy(date_str, kline_dir, out_root, config_path="config/strategy.jso
         pool["pools"]["alert" if score >= min_score else "candidate"][sid] = pool_entry
         events.append({"ts": f"{date_str}T{datetime.datetime.now().strftime('%H:%M:%S')}", "type": "signal_hit",
                        "stock_id": sid, "score": score, "detail": "策略引擎 17 模型盘后扫描", "source": "tdx_model"})
+
+    cap_alert_pool(pool["pools"], cfg.get("alert_pool", {}).get("top_n", 30))
 
     day_dir = os.path.join(out_root, "facts", date_str)
     os.makedirs(day_dir, exist_ok=True)

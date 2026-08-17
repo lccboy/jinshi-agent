@@ -24,6 +24,22 @@ CADENCE = [
 PHASES = {"auction": ("09:15", "09:30"), "open": ("09:30", "10:30"), "tail": ("10:31", "15:00")}
 
 
+def cadence_for_time(hhmmss):
+    """交易时钟 → (阶段, 秒间隔)；闭市/午休不发网络请求。"""
+    seconds = _interval_seconds(hhmmss)
+    if 9 * 3600 + 15 * 60 <= seconds < 9 * 3600 + 30 * 60:
+        return "auction", 3
+    if 9 * 3600 + 30 * 60 <= seconds < 10 * 3600 + 31 * 60:
+        return "open", 3
+    if 10 * 3600 + 31 * 60 <= seconds <= 11 * 3600 + 30 * 60:
+        return "tail", 30
+    if 11 * 3600 + 30 * 60 < seconds < 13 * 3600:
+        return "lunch", None
+    if 13 * 3600 <= seconds <= 15 * 3600:
+        return "tail", 30
+    return "closed", None
+
+
 def phase_for_time(hhmmss):
     """时间 'HH:MM:SS' → 阶段（auction/open/tail）。"""
     t = str(hhmmss).replace(":", "")
@@ -100,7 +116,7 @@ def _interval_seconds(hhmmss):
     return h * 3600 + m * 60 + s
 
 
-def collect_once(codes, watch_codes=None, phase="open"):
+def collect_once(codes, watch_codes=None, phase="open", include_quotes=False):
     """单次采集：腾讯全市场行情 → 快照（结构化段预留 KPL 挂点）。
 
     codes: 全市场/子集股票代码列表；watch_codes: 盘中关注池（涨停池/候选池成分）。
@@ -112,7 +128,8 @@ def collect_once(codes, watch_codes=None, phase="open"):
                     "change_pct": q["change_pct"], "volRatio": q["vol_ratio"],
                     "limit_up": q["limit_up"], "preclose": q["preclose"]}
               for sid, q in quotes.items()}
-    return build_snapshot(ts, phase, stocks=stocks)
+    snapshot = build_snapshot(ts, phase, stocks=stocks)
+    return (snapshot, quotes) if include_quotes else snapshot
 
 
 def run_loop(intraday_root, date_str, codes, interval=3, phase="open", max_snapshots=0, dry=False):
@@ -132,6 +149,53 @@ def run_loop(intraday_root, date_str, codes, interval=3, phase="open", max_snaps
     return count
 
 
+def run_market_session(intraday_root, date_str, codes, now_fn=datetime.datetime.now,
+                       sleep_fn=time.sleep, collect_fn=collect_once, on_quotes=None,
+                       max_consecutive_errors=10):
+    """按真实交易时钟无人值守采集；午休暂停，15:00 后自动结束，网络异常退避。"""
+    day_dir = os.path.join(intraday_root, date_str)
+    now = now_fn()
+    write_meta(day_dir, date_str, cadence="dynamic", status="running",
+               extra={"started_at": now.strftime("%Y-%m-%d %H:%M:%S"), "errors": 0})
+    count = errors = consecutive_errors = 0
+    while True:
+        hhmmss = now.strftime("%H:%M:%S")
+        phase, interval = cadence_for_time(hhmmss)
+        seconds = _interval_seconds(hhmmss)
+        if seconds > 15 * 3600:
+            break
+        if interval is None:
+            sleep_fn(30 if phase == "lunch" else 1)
+            now = now_fn()
+            continue
+        try:
+            result = collect_fn(codes, phase=phase)
+            if isinstance(result, tuple):
+                snap, quotes = result
+                if on_quotes:
+                    on_quotes(quotes)
+            else:
+                snap = result
+            append_snapshot(day_dir, snap)
+            count += 1
+            consecutive_errors = 0
+            sleep_fn(interval)
+        except Exception as exc:
+            errors += 1
+            consecutive_errors += 1
+            write_meta(day_dir, date_str, cadence="dynamic", status="degraded",
+                       extra={"snapshots": count, "errors": errors, "last_error": f"{type(exc).__name__}: {exc}"})
+            if consecutive_errors >= max_consecutive_errors:
+                write_meta(day_dir, date_str, cadence="dynamic", status="failed",
+                           extra={"snapshots": count, "errors": errors, "last_error": str(exc)})
+                raise
+            sleep_fn(min(60, 2 ** consecutive_errors))
+        now = now_fn()
+    write_meta(day_dir, date_str, cadence="dynamic", status="done",
+               extra={"snapshots": count, "errors": errors, "finished_at": now.strftime("%Y-%m-%d %H:%M:%S")})
+    return count
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="盘中快照采集（intraday_collector）")
     ap.add_argument("--date", default=datetime.date.today().strftime("%Y-%m-%d"), help="数据日期")
@@ -141,6 +205,9 @@ def main(argv=None):
     ap.add_argument("--once", action="store_true", help="只采一次（调试）")
     ap.add_argument("--interval", type=int, default=3, help="采集间隔秒（默认 3）")
     ap.add_argument("--max-snapshots", type=int, default=0, help="快照上限（0=无限）")
+    ap.add_argument("--realtime", action="store_true", help="每帧同步运行事件引擎并维护预警池")
+    ap.add_argument("--facts", default="data/facts", help="实时事件 facts 根目录")
+    ap.add_argument("--kline", default="data/kline", help="日K目录（冻结上下文）")
     args = ap.parse_args(argv)
 
     codes = []
@@ -157,8 +224,29 @@ def main(argv=None):
         print(f"[OK] 单次快照 → {path}（{len(snap.get('stocks', {}))} 只）")
         return 0
 
-    n = run_loop(args.intraday, args.date, codes, interval=args.interval,
-                 max_snapshots=args.max_snapshots)
+    if args.max_snapshots:
+        n = run_loop(args.intraday, args.date, codes, interval=args.interval,
+                     max_snapshots=args.max_snapshots)
+    else:
+        collect_fn, on_quotes = collect_once, None
+        if args.realtime:
+            from .realtime_engine import load_frozen_context, scan_snapshot
+            frozen, source_date = load_frozen_context(args.facts, args.date, args.kline)
+            if not frozen:
+                print(f"[ERROR] {args.date} 之前无策略冻结上下文")
+                return 1
+            previous = {}
+
+            def collect_fn(codes, phase="open"):
+                return collect_once(codes, phase=phase, include_quotes=True)
+
+            def on_quotes(quotes):
+                scan_snapshot(args.facts, args.date, frozen, quotes, previous)
+                previous.clear()
+                previous.update(quotes)
+
+            print(f"[READY] 实时事件引擎冻结日={source_date} 股票={len(frozen)}")
+        n = run_market_session(args.intraday, args.date, codes, collect_fn=collect_fn, on_quotes=on_quotes)
     print(f"[OK] 采集完成 {n} 个快照 → {os.path.join(args.intraday, args.date)}")
     return 0
 

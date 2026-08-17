@@ -16,7 +16,7 @@ import json
 import os
 import struct
 
-from .normalize import stock_id
+from .normalize import is_equity_code, stock_id
 
 DAY_RECORD = struct.Struct("<IIIIIfII")  # date,o,h,l,c,amt(float),vol,reserved = 32B
 DAY_RECORD_SIZE = DAY_RECORD.size
@@ -173,6 +173,14 @@ def write_kline_json(sid, bars, out_dir):
     return path
 
 
+def load_universe_from_stocks(path):
+    with open(path, encoding="utf-8") as fh:
+        stocks = json.load(fh)
+    return sorted({str(rec.get("code") or sid[2:]).zfill(6) for sid, rec in stocks.items()
+                   if rec.get("status") not in ("source_missing", "invalid_instrument")
+                   and is_equity_code(rec.get("code") or sid[2:])})
+
+
 def sync_stock(code, market, vipdoc_root, out_dir):
     """同步单只：读 .day → 前复权 → 转元 → 写 kline JSON。返回 (sid, 根数)。"""
     sid = stock_id(code)
@@ -192,12 +200,16 @@ def main(argv=None):
     ap.add_argument("--code", help="6 位代码（如 600000）")
     ap.add_argument("--market", default="sh", choices=["sh", "sz", "bj"], help="市场目录（默认 sh）")
     ap.add_argument("--universe-file", help="批量：每行一个 6 位代码（自动按代码前缀选市场）")
+    ap.add_argument("--stocks-json", help="批量：从 normalized/stocks.json 读取全市场代码")
     ap.add_argument("--limit", type=int, default=0, help="批量上限（0=全部）")
     args = ap.parse_args(argv)
 
-    if args.universe_file:
-        with open(args.universe_file, encoding="utf-8") as fh:
-            codes = [ln.strip() for ln in fh if ln.strip()]
+    if args.universe_file or args.stocks_json:
+        if args.stocks_json:
+            codes = load_universe_from_stocks(args.stocks_json)
+        else:
+            with open(args.universe_file, encoding="utf-8") as fh:
+                codes = [ln.strip() for ln in fh if ln.strip()]
         if args.limit:
             codes = codes[: args.limit]
         done, failed = 0, []

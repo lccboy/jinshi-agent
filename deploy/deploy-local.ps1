@@ -14,7 +14,14 @@ powershell -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot "build.ps1")
 # 2) 复制到 nginx html/DSH
 Write-Host "[2/4] 部署到 $nginxDir\html\DSH ..."
 $dst = Join-Path $nginxDir "html\DSH"
-if (Test-Path $dst) { Remove-Item $dst -Recurse -Force }
+$releaseBackupRoot = Join-Path $nginxDir "backups"
+New-Item -ItemType Directory -Path $releaseBackupRoot -Force | Out-Null
+if (Test-Path $dst) {
+    $releaseBackup = Join-Path $releaseBackupRoot ("DSH." + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Copy-Item $dst $releaseBackup -Recurse -Force
+    Write-Host "  现网备份: $releaseBackup"
+    Remove-Item $dst -Recurse -Force
+}
 Copy-Item (Join-Path $root "dist") $dst -Recurse -Force
 
 # 3) nginx 配置（已存在则备份）
@@ -29,7 +36,11 @@ Copy-Item (Join-Path $PSScriptRoot "nginx-dsh.conf") $conf -Force
 Write-Host "[4/4] 启动服务 ..."
 $apiHealth = try { (Invoke-WebRequest -Uri "http://127.0.0.1:8787/api/health" -UseBasicParsing -TimeoutSec 3).StatusCode } catch { 0 }
 if ($apiHealth -ne 200) {
-    Start-Process -FilePath $py -ArgumentList "services\market_data_service.py --port 8787 --data data" -WorkingDirectory $root -WindowStyle Hidden
+    $logDir = Join-Path $root "data\runs\logs"
+    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    Start-Process -FilePath $py -ArgumentList "services\market_data_service.py --port 8787 --data data" `
+        -WorkingDirectory $root -WindowStyle Hidden -RedirectStandardOutput (Join-Path $logDir "api.stdout.log") `
+        -RedirectStandardError (Join-Path $logDir "api.stderr.log")
     Write-Host "  API 服务已启动 (8787)"
 } else {
     Write-Host "  API 服务已在运行 (8787)"
@@ -37,7 +48,8 @@ if ($apiHealth -ne 200) {
 
 $nginxRunning = Get-Process -Name nginx -ErrorAction SilentlyContinue
 if ($nginxRunning) {
-    & (Join-Path $nginxDir "nginx.exe") -s reload
+    & (Join-Path $nginxDir "nginx.exe") -p $nginxDir -c "conf/nginx.conf" -s reload
+    if ($LASTEXITCODE -ne 0) { throw "nginx reload failed (exit $LASTEXITCODE)" }
     Write-Host "  nginx 已 reload"
 } else {
     Start-Process -FilePath (Join-Path $nginxDir "nginx.exe") -WorkingDirectory $nginxDir -WindowStyle Hidden

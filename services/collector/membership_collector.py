@@ -76,7 +76,7 @@ def collect(date_str, kpl_stocks_path, normalized_dir, out_root):
         sectors = json.load(fh)
     with open(os.path.join(normalized_dir, "themes.json"), encoding="utf-8") as fh:
         themes = json.load(fh)
-    orders = load_plate_orders(kpl_stocks_path)
+    orders = load_plate_orders(kpl_stocks_path) if kpl_stocks_path and os.path.exists(kpl_stocks_path) else {}
     membership = build_membership(stocks, sectors, themes, orders)
 
     day_dir = os.path.join(out_root, "facts", date_str)
@@ -92,7 +92,7 @@ def collect(date_str, kpl_stocks_path, normalized_dir, out_root):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="按日归属 membership（membership_collector）")
     ap.add_argument("--date", default=datetime.date.today().strftime("%Y-%m-%d"), help="数据日期")
-    ap.add_argument("--kpl-stocks", required=True, help="kpl_<date>_stocks.json（板块内强度序）")
+    ap.add_argument("--kpl-stocks", help="可选：kpl_<date>_stocks.json（板块内强度序）")
     ap.add_argument("--normalized", default="data/normalized", help="主数据目录（默认 data/normalized）")
     ap.add_argument("--out", default="data", help="数据根目录（默认 data）")
     args = ap.parse_args(argv)

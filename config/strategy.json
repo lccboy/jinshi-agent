@@ -8,7 +8,7 @@
     "dwm": { "enabled": true, "family": "trend" },
     "lowstart": { "enabled": true, "family": "reversal" },
     "volbrk": { "enabled": true, "family": "breakout" },
-    "perfect_ten": { "enabled": true, "family": "money", "params": { "min_conditions": 7 } },
+    "perfect_ten": { "enabled": true, "family": "money", "params": { "min_conditions": 11 } },
     "golden_vol": { "enabled": true, "family": "money", "params": { "window": 3, "vol_mult": 1.2 } },
     "hub_breakout": { "enabled": true, "family": "breakout" },
     "div_reversal": { "enabled": true, "family": "reversal" },
