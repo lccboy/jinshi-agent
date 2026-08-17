@@ -8,6 +8,13 @@ def _write(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False), encoding="utf-8")
 
 
+def _write_kline(tmp_path, sids, last_d):
+    for sid in sids:
+        _write(tmp_path / f"kline/{sid}.json",
+               {"stock_id": sid, "adjusted": "qfq",
+                "bars": [{"d": last_d, "o": 100, "h": 100, "l": 100, "c": 100, "v": 1, "amt": 1.0}]})
+
+
 def test_quality_gate_passes_complete_day(tmp_path):
     _write(tmp_path / "normalized/stocks.json", {
         "SH600000": {"current": {"sectors": ["880001"]}, "industry": "银行", "list_date": "1999-11-10"}
@@ -17,6 +24,7 @@ def test_quality_gate_passes_complete_day(tmp_path):
     for name in ("meta", "limitup", "membership", "strategy", "events", "pool"):
         _write(tmp_path / f"facts/2026-08-17/{name}.json", {"data_date": "2026-08-17"})
     _write(tmp_path / "web/day_2026-08-17.json", {"data_date": "2026-08-17"})
+    _write_kline(tmp_path, ["SH600000", "SZ000001"], 20260817)
     report = evaluate_quality(tmp_path, "2026-08-17", {"min_sector_coverage": 0.9})
     assert report["status"] == "pass"
     assert not [x for x in report["checks"] if x["status"] == "fail"]
@@ -62,3 +70,18 @@ def test_promote_only_when_report_has_no_fail(tmp_path):
     assert not (web / "day_latest.json").exists()
     path = promote_if_acceptable({"data_date": "2026-08-17", "status": "warn"}, web)
     assert path.name == "day_latest.json"
+
+
+def test_kline_freshness_pass(tmp_path):
+    _write_kline(tmp_path, ["SH600000", "SZ000001", "BJ920000"], 20260817)
+    report = evaluate_quality(tmp_path, "2026-08-17", {"min_sector_coverage": 0.9, "required_facts": []})
+    check = {x["name"]: x for x in report["checks"]}["kline_freshness"]
+    assert check["status"] == "pass"
+    assert check["actual"]["current"] == 3
+
+
+def test_kline_freshness_stale_fails(tmp_path):
+    _write_kline(tmp_path, ["SH600000", "SZ000001"], 20260814)
+    report = evaluate_quality(tmp_path, "2026-08-17", {"min_sector_coverage": 0.9, "required_facts": []})
+    check = {x["name"]: x for x in report["checks"]}["kline_freshness"]
+    assert check["status"] == "fail"

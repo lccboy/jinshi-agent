@@ -79,8 +79,11 @@ def test_build_stage_commands_contains_real_pipeline(tmp_path):
     assert any("services.collector.master_collector" in cmd for cmd in commands["premarket"] for part in cmd)
     assert any("--realtime" in cmd for cmd in commands["intraday"])
     assert any("services.collector.strategy_engine" in cmd for cmd in commands["postmarket"] for part in cmd)
-    assert "services.collector.close_archive" in commands["archive"][0]
-    assert "--kpl-output" in commands["archive"][1]
+    # archive 阶段：15:30+ .day 就绪后补跑 kline + 重算当日收盘策略（修复 postmarket 前日截面错位）
+    assert any("services.collector.kline_sync" in cmd for cmd in commands["archive"] for part in cmd)
+    assert any("services.collector.strategy_engine" in cmd for cmd in commands["archive"] for part in cmd)
+    assert "services.collector.close_archive" in commands["archive"][2]
+    assert "--kpl-output" in commands["archive"][3]
     assert any("--stage-only" in cmd for cmd in commands["archive"])
     assert any("--promote" in cmd for cmd in commands["archive"])
     master = commands["premarket"][0]

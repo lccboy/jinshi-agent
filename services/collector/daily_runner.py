@@ -159,6 +159,12 @@ def build_stage_commands(date_str, runtime):
              "--kline", os.path.join(data, "kline"), "--out", data, "--config", "config/strategy.json"],
         ],
         "archive": [
+            # 15:30+ TdxW .day 已就绪：补跑当日 kline + 重算当日收盘策略
+            # （postmarket 15:10 跑 kline 时 .day 常无当日 bar，导致 strategy 基于前日截面错位）
+            [py, "-m", "services.collector.kline_sync", "--vipdoc", vipdoc,
+             "--stocks-json", os.path.join(norm, "stocks.json"), "--out", os.path.join(data, "kline")],
+            [py, "-m", "services.collector.strategy_engine", "--date", date_str,
+             "--kline", os.path.join(data, "kline"), "--out", data, "--config", "config/strategy.json"],
             [py, "-m", "services.collector.close_archive", "--date", date_str,
              "--collector", runtime.get("kpl_collector", r"H:\projects\kpl\collect_live.py"),
              "--kpl-output", runtime.get("kpl_output", r"H:\projects\kpl\output"),

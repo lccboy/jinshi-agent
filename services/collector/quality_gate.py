@@ -64,6 +64,26 @@ def evaluate_quality(data_root, date_str, config=None):
     checks.append(_check("web_day_view", "pass" if web_ok else "fail",
                          "valid" if web_ok else "missing_or_wrong_date", date_str, "Web 当日聚合视图"))
 
+    # kline 底库时效契约：策略基准必须与数据日期一致（08-17 曾出现 kline 停 08-14 导致策略错位）
+    kline_dir = root / "kline"
+    kline_date_int = int(date_str.replace("-", ""))
+    kline_checked = kline_ok = 0
+    if kline_dir.is_dir():
+        for path in sorted(kline_dir.glob("*.json"))[:200]:
+            doc = _read(path)
+            bars = (doc or {}).get("bars") or []
+            if not bars:
+                continue
+            kline_checked += 1
+            if bars[-1]["d"] == kline_date_int:
+                kline_ok += 1
+    kline_ratio = kline_ok / kline_checked if kline_checked else 0.0
+    checks.append(_check("kline_freshness",
+                         "pass" if kline_checked and kline_ratio >= 0.9 else "fail",
+                         {"sampled": kline_checked, "current": kline_ok,
+                          "ratio": round(kline_ratio, 4)},
+                         f"latest bar == {date_str} (>=90%)", "日K 底库时效（策略基准）"))
+
     statuses = {x["status"] for x in checks}
     status = "fail" if "fail" in statuses else ("warn" if "warn" in statuses else "pass")
     return {"data_date": date_str, "generated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
