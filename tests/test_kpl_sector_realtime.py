@@ -2,6 +2,8 @@ from services.collector.kpl_sector_realtime import (
     parse_ranking,
     parse_sub_sectors,
     parse_stocks,
+    parse_intraday,
+    position_rank,
 )
 
 
@@ -34,3 +36,20 @@ def test_parse_stocks_keeps_reference_numeric_columns():
     assert stock["amount"] == 123000000
     assert stock["main_net"] == 22000000
     assert stock["circ_market_cap"] == 4560000000
+
+
+def test_parse_intraday_aligns_turnover_and_price_by_time():
+    vol = {"volumeturnover": [["09:30", 10, 100000000, 1], ["09:31", 20, 200000000, 0]]}
+    trend = {"trend": [["09:30", 4055.1, 0, 0, 1], ["09:31", 4060.2, 0, 0, 0]], "preclose_px": 4042.0}
+    result = parse_intraday(vol, trend)
+    assert result["times"] == ["09:30", "09:31"]
+    assert result["amounts"] == [1.0, 2.0]
+    assert result["prices"] == [4055.1, 4060.2]
+    assert result["preclose"] == 4042.0
+
+
+def test_position_rank_supports_chinese_dragon_order():
+    assert position_rank("龙一") == 1
+    assert position_rank("十一") == 11
+    assert position_rank("龙十二") == 12
+    assert position_rank("") == 9999

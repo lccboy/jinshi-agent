@@ -62,15 +62,49 @@ def parse_sub_sectors(doc):
     return sorted(subs, key=lambda x: -x["strength"])
 
 
+_CN_DIGITS = {"零": 0, "一": 1, "二": 2, "三": 3, "四": 4, "五": 5,
+              "六": 6, "七": 7, "八": 8, "九": 9}
+
+
+def position_rank(value):
+    text = str(value or "").strip().replace("龙", "")
+    if not text:
+        return 9999
+    try:
+        return int(text)
+    except ValueError:
+        pass
+    if text == "十":
+        return 10
+    if "十" in text:
+        left, right = text.split("十", 1)
+        return (_CN_DIGITS.get(left, 1) if left else 1) * 10 + (_CN_DIGITS.get(right, 0) if right else 0)
+    return _CN_DIGITS.get(text, 9999)
+
+
+def parse_intraday(volume_doc, trend_doc):
+    amounts = {str(row[0]): round(_num(row[2]) / 1e8, 3)
+               for row in volume_doc.get("volumeturnover", []) or []
+               if isinstance(row, list) and len(row) >= 3}
+    prices = {str(row[0]): _num(row[1]) for row in trend_doc.get("trend", []) or []
+              if isinstance(row, list) and len(row) >= 2}
+    times = [t for t in amounts if t in prices]
+    return {"times": times, "amounts": [amounts[t] for t in times], "prices": [prices[t] for t in times],
+            "preclose": _num(trend_doc.get("preclose_px"))}
+
+
 def parse_stocks(doc):
     stocks = []
     for row in doc.get("list", doc.get("List", [])) or []:
         if not isinstance(row, list) or len(row) < 63 or not row[0]:
             continue
         code = str(row[0]).zfill(6)
+        raw_position = str(row[24] or "").strip()
+        rank = position_rank(raw_position)
         stocks.append({
             "stock_id": stock_id(code), "code": code, "name": str(row[1]),
-            "position": str(row[24] or ""), "change": _num(row[6]), "price": _num(row[5]),
+            "position": ("龙" + raw_position.replace("龙", "")) if rank != 9999 else "",
+            "position_rank": rank, "change": _num(row[6]), "price": _num(row[5]),
             "turnover": _num(row[25]), "amount": _num(row[7]), "main_net": _num(row[13]),
             "vol_ratio": _num(row[21]), "net_flow_ratio": _num(row[19]),
             "boards": str(row[23] or ""), "pe": row[47] if row[47] not in (None, "--") else "",
@@ -120,11 +154,16 @@ def fetch_realtime(plate_id, sub_id=None):
         "RStart": "0925", "REnd": max_time, "old": "1", "Type": "6", "PlateID": target_id,
     }))
     stocks = parse_stocks(stocks_doc)
+    intraday_docs = _cached("intraday:" + plate_id + ":" + max_time, lambda: (
+        _request({"a": "GetVolTurIncremental", "c": "ZhiShuL2Data", "StockID": plate_id, "Day": ""}),
+        _request({"a": "GetTrendIncremental", "c": "ZhiShuL2Data", "StockID": plate_id, "Day": ""}),
+    ))
     return {
         "available": True, "source": "kpl", "source_time": ranking_doc.get("Time"),
         "min_time": ranking_doc.get("Min"), "max_time": max_time,
         "plate_id": plate_id, "selected_plate_id": target_id,
         "sectors": sectors, "sub_sectors": parse_sub_sectors(subs_doc), "stocks": stocks,
+        "intraday": parse_intraday(intraday_docs[0], intraday_docs[1]),
         "stock_count": len(stocks),
         "limit_up_count": sum(1 for row in stocks if row["change"] >= 9.8),
         "up6_count": sum(1 for row in stocks if 6 <= row["change"] < 9.8),
