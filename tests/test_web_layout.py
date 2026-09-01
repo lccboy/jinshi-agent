@@ -70,7 +70,7 @@ def test_member_center_is_regular_split_page_and_offers_local_helper_download():
     assert "member-center-backdrop" not in html
     assert 'role="dialog"' not in html
     for marker in ("vMemberCenter", "currentView = 'member'", "member-helper-download",
-                   "JinshiDSH-Workbench-1.0.25.zip", "member-guide.html", "memberOpenLocalPage"):
+                   "JinshiDSH-Workbench-1.0.26.zip", "member-guide.html", "memberOpenLocalPage"):
         assert marker in js
     assert "memberRetryHelper" not in js
     for selector in (".member-page", ".member-page-nav", ".member-page-content"):
@@ -441,7 +441,7 @@ def test_signal_dashboard_renders_market_context_before_actionable_alerts():
     for selector in (".signal-market-dashboard", ".market-index-grid", ".signal-decision-grid"):
         assert selector in css
     html = (WEB / "index.html").read_text(encoding="utf-8")
-    assert "v=0.4.71-live-history-v1" in html
+    assert "v=0.4.72-member-history-pools" in html
 
 
 def test_signal_dashboard_highlights_temperature_and_shows_kdj_position_formula():
@@ -518,6 +518,8 @@ def test_history_tab_uses_split_layout_and_sorts_four_dimensions_by_stars():
     css = (WEB / "assets" / "app.css").read_text(encoding="utf-8")
     for marker in ("history-workbench", "history-sidebar", "history-main", "history-pool-nav",
                    "historyPoolKind", "historySortRows", "confirmCount", "最高确认"):
+        assert marker in js
+    for marker in ("loadHistoryDatePools", "api/pools?date=", "memberPoolLoaded"):
         assert marker in js
     assert "Number(b.entry.stars || 0) - Number(a.entry.stars || 0)" in js
     for selector in (".history-workbench", ".history-sidebar", ".history-main", ".history-pool-nav"):
@@ -609,7 +611,7 @@ def test_signal_page_merges_member_local_realtime_from_helper():
 
 def test_index_cache_buster_covers_member_center_release():
     html = (WEB / "index.html").read_text(encoding="utf-8")
-    assert html.count("v=0.4.71-live-history-v1") == 2
+    assert html.count("v=0.4.72-member-history-pools") == 2
 
 
 def test_sector_leading_and_strategy_stocks_have_inline_watch_action():
@@ -851,4 +853,4 @@ def test_theme_master_libraries_use_data_revision_cache_buster():
     html = (WEB / "index.html").read_text(encoding="utf-8")
     load_lib = js[js.index("function loadLib"):js.index("function loadExpandLibs")]
     assert "name + '?v=' + DATA_VIEW_REV" in load_lib
-    assert html.count("v=0.4.71-live-history-v1") == 2
+    assert html.count("v=0.4.72-member-history-pools") == 2

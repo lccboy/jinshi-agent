@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>金十DSH</title>
-  <link rel="stylesheet" href="./assets/app.css?v=0.4.2-fix-deploy-sync">
+  <link rel="stylesheet" href="./assets/app.css?v=0.4.72-member-history-pools">
 </head>
 <body>
   <div class="app">
@@ -12,12 +12,18 @@
       <div class="brand">金十DSH</div>
       <nav class="tabs" id="tabs">
         <button class="tab active" data-view="signal">实时信号</button>
+        <button class="tab" data-view="auction">竞价雷达</button>
+        <button class="tab" data-view="minute-volume">分钟爆量</button>
         <button class="tab" data-view="theme">题材库</button>
         <button class="tab" data-view="sector">板块强度</button>
+        <button class="tab" data-view="leading">领涨原因</button>
         <button class="tab" data-view="strategy">策略模型</button>
         <button class="tab" data-view="history">历史选股</button>
       </nav>
-      <select id="dateSel" class="date-sel" title="切换数据日期（历史日期命中 immutable 缓存，秒开）"></select>
+      <div class="top-actions">
+        <select id="dateSel" class="date-sel" title="切换数据日期（历史日期命中 immutable 缓存，秒开）"></select>
+        <button id="memberCenterBtn" class="member-center-btn" type="button">会员中心</button>
+      </div>
     </header>
     <main id="main" class="main">
       <section class="empty-state">
@@ -27,6 +33,6 @@
     </main>
   </div>
   <div id="popup" class="popup"></div>
-  <script src="./assets/app.js?v=0.4.2-fix-deploy-sync"></script>
+  <script src="./assets/app.js?v=0.4.72-member-history-pools"></script>
 </body>
 </html>

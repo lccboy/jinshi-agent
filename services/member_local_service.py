@@ -28,7 +28,7 @@ from services.local_license import (license_allows_member, load_license_cache,
 
 
 MEMBER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-HELPER_VERSION = "1.0.25"
+HELPER_VERSION = "1.0.26"
 _GENERATION_LOCK = threading.Lock()
 _GENERATION_THREADS = {}
 _SYNC_THREAD = None
@@ -1341,6 +1341,22 @@ class MemberHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
         requested_date = str(query.get("date", [""])[0])
+        member_id = self._active_member_id()
+        private = {}
+        if member_id and self._member_authorized(member_id) and requested_date:
+            path = Path(self.members_root) / member_id / "facts" / requested_date / "pool.json"
+            try:
+                private = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                private = {}
+        private_pools = private.get("pools") or {}
+        # 历史选股完全以会员本地冻结池为准；命中时不再等待远端公共空池。
+        if private_pools.get("alert") or private_pools.get("candidate"):
+            return self._send(200, {"data": {"data_date": requested_date,
+                                               "pools": private_pools},
+                                    "meta": {"watchlist_scope": "member-local",
+                                             "strategy_pool_scope": "member-local",
+                                             "source": "member-local-archive"}})
         address = self.upstream_api.rstrip("/") + "/pools"
         if parsed.query:
             address += "?" + parsed.query
@@ -1350,15 +1366,15 @@ class MemberHandler(BaseHTTPRequestHandler):
         except Exception as exc:
             document = {"data": {"data_date": requested_date, "pools": {}},
                         "meta": {"public_upstream": "unavailable", "detail": str(exc)}}
-        member_id = self._active_member_id()
         if member_id and self._member_authorized(member_id):
             date_str = str(requested_date or
                            ((document.get("data") or {}).get("data_date") or ""))
-            path = Path(self.members_root) / member_id / "facts" / date_str / "pool.json"
-            try:
-                private = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                private = {}
+            if not private or date_str != requested_date:
+                path = Path(self.members_root) / member_id / "facts" / date_str / "pool.json"
+                try:
+                    private = json.loads(path.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    private = {}
             pools = (document.setdefault("data", {}).setdefault("pools", {}))
             for name in ("limitup", "ladder", "alert", "candidate"):
                 pools.setdefault(name, {})

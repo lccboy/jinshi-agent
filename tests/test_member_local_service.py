@@ -378,6 +378,30 @@ def test_local_watchlist_is_member_private_and_overlays_public_pools(tmp_path, m
         server.server_close()
 
 
+def test_member_strategy_pool_uses_local_archive_without_waiting_for_upstream(tmp_path, monkeypatch):
+    monkeypatch.setattr(member_service, "urlopen", lambda *_args, **_kwargs: (_ for _ in ()).throw(
+        AssertionError("local strategy archive must not wait for public upstream")))
+    monkeypatch.setattr(MemberHandler, "_active_member_id", lambda self: "U100")
+    monkeypatch.setattr(MemberHandler, "_member_authorized", lambda self, value: value == "U100")
+    MemberHandler.members_root = tmp_path / "members"
+    private = tmp_path / "members" / "U100" / "facts" / "2026-09-01" / "pool.json"
+    private.parent.mkdir(parents=True)
+    private.write_text(json.dumps({"data_date": "2026-09-01", "pools": {
+        "alert": {"SH600000": {"score": 90}}, "candidate": {"SZ300001": {"score": 75}}
+    }}), encoding="utf-8")
+    server = member_service.ThreadingHTTPServer(("127.0.0.1", 0), MemberHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        document = json.loads(urlopen(
+            f"http://127.0.0.1:{server.server_port}/api/pools?date=2026-09-01"
+        ).read().decode("utf-8"))
+        assert set(document["data"]["pools"]["alert"]) == {"SH600000"}
+        assert document["meta"]["source"] == "member-local-archive"
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
 def test_local_watchlist_remains_readable_when_public_day_is_not_archived(tmp_path, monkeypatch):
     monkeypatch.setattr(member_service, "urlopen", lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("404")))
     monkeypatch.setattr(MemberHandler, "_active_member_id", lambda self: "U100")
@@ -949,7 +973,7 @@ def test_save_member_config_is_member_scoped(tmp_path):
 
 def test_frozen_helper_installs_only_in_current_user_directories(tmp_path):
     paths = install_paths(local_appdata=tmp_path / "Local", appdata=tmp_path / "Roaming")
-    assert paths["exe"] == tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.25.exe"
+    assert paths["exe"] == tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.26.exe"
     assert "Startup" in str(paths["startup"])
     command = startup_command(paths["exe"])
     assert str(paths["exe"]) in command
@@ -959,7 +983,7 @@ def test_frozen_helper_installs_only_in_current_user_directories(tmp_path):
 def test_install_reuses_running_target_when_windows_denies_replacement(tmp_path, monkeypatch):
     source = tmp_path / "download.exe"
     source.write_bytes(b"new helper")
-    target = tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.25.exe"
+    target = tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.26.exe"
     startup = tmp_path / "Roaming" / "Startup" / "JinshiDSH-MemberHelper.cmd"
     target.parent.mkdir(parents=True)
     target.write_bytes(b"running helper")
@@ -990,7 +1014,7 @@ def test_upgrade_knows_only_older_versioned_helper_process_names():
     assert "JinshiDSH-MemberHelper-1.0.9.exe" in names
     assert "JinshiDSH-MemberHelper-1.0.10.exe" in names
     assert "JinshiDSH-MemberHelper-1.0.11.exe" in names
-    assert "JinshiDSH-MemberHelper-1.0.25.exe" not in names
+    assert "JinshiDSH-MemberHelper-1.0.26.exe" not in names
 
 
 def test_jsonp_fallback_is_read_only_and_cannot_save_member_config(tmp_path):
