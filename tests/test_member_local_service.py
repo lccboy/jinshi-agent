@@ -599,19 +599,22 @@ def test_member_realtime_result_combines_local_strategy_and_public_quotes(tmp_pa
     shared = tmp_path / "shared"
     (shared / "realtime").mkdir(parents=True)
     (shared / "realtime" / "latest.json").write_text(json.dumps({"data_date": "2026-08-26",
-        "ts": "2026-08-26 10:00:00", "stocks": {"SH600000": {"price": 10.8, "change_pct": 8,
+        "ts": "2026-08-26 10:00:00", "stocks": {"SH600000": {"price": 10.8, "change_pct": 7,
         "vol_ratio": 2.2, "limit_up": 11}}}), encoding="utf-8")
     def fake_baseline(*_args, **_kwargs):
         day = member / "facts" / "2026-08-26"; day.mkdir(parents=True, exist_ok=True)
         (day / "strategy.json").write_text(json.dumps({"SH600000": {"models": {"breakout": 80},
             "score": 80, "buy_point": 10.5, "stop": 9.8, "stop_pct": 2, "rr": 3.5,
-            "target": 12, "bp_pass": True}}), encoding="utf-8")
+            "target": 12, "bp_pass": True, "stars": 4,
+            "confirm": {"sector_strength": True, "money_flow": True, "leading_reason": True}}}), encoding="utf-8")
     monkeypatch.setattr(member_service, "_run_member_strategy_baseline", fake_baseline)
     result = member_service.calculate_member_realtime(config, shared)
     assert result["data_date"] == "2026-08-26"
     assert result["quote_count"] == 1
     assert result["model_hits"][0]["stock_id"] == "SH600000"
     assert result["model_hits"][0]["price"] == 10.8
+    assert result["actionable_alerts"][0]["quality_score"] == 80
+    assert result["actionable_alerts"][0]["confirm"]["money_flow"] is True
     assert (member / "realtime" / "latest.json").exists()
 
 
@@ -973,7 +976,7 @@ def test_save_member_config_is_member_scoped(tmp_path):
 
 def test_frozen_helper_installs_only_in_current_user_directories(tmp_path):
     paths = install_paths(local_appdata=tmp_path / "Local", appdata=tmp_path / "Roaming")
-    assert paths["exe"] == tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.26.exe"
+    assert paths["exe"] == tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.27.exe"
     assert "Startup" in str(paths["startup"])
     command = startup_command(paths["exe"])
     assert str(paths["exe"]) in command
@@ -983,7 +986,7 @@ def test_frozen_helper_installs_only_in_current_user_directories(tmp_path):
 def test_install_reuses_running_target_when_windows_denies_replacement(tmp_path, monkeypatch):
     source = tmp_path / "download.exe"
     source.write_bytes(b"new helper")
-    target = tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.26.exe"
+    target = tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.27.exe"
     startup = tmp_path / "Roaming" / "Startup" / "JinshiDSH-MemberHelper.cmd"
     target.parent.mkdir(parents=True)
     target.write_bytes(b"running helper")
@@ -1014,7 +1017,7 @@ def test_upgrade_knows_only_older_versioned_helper_process_names():
     assert "JinshiDSH-MemberHelper-1.0.9.exe" in names
     assert "JinshiDSH-MemberHelper-1.0.10.exe" in names
     assert "JinshiDSH-MemberHelper-1.0.11.exe" in names
-    assert "JinshiDSH-MemberHelper-1.0.26.exe" not in names
+    assert "JinshiDSH-MemberHelper-1.0.27.exe" not in names
 
 
 def test_jsonp_fallback_is_read_only_and_cannot_save_member_config(tmp_path):
@@ -1033,6 +1036,30 @@ def test_jsonp_fallback_is_read_only_and_cannot_save_member_config(tmp_path):
         denied = urlopen(base + "?callback=cb&action=save&member_id=vip_001&vipdoc=" + quote(str(vipdoc))).read().decode("utf-8")
         assert '"ok": false' in denied
         assert not (tmp_path / "members" / "vip_001" / "config.json").exists()
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_jsonp_realtime_uses_active_local_member_when_browser_has_no_member_id(tmp_path, monkeypatch):
+    monkeypatch.setattr(MemberHandler, "_active_member_id", lambda self: "U100")
+    monkeypatch.setattr(MemberHandler, "_member_authorized", lambda self, value: value == "U100")
+    MemberHandler.members_root = tmp_path / "members"
+    member = tmp_path / "members" / "U100"
+    (member / "kline").mkdir(parents=True)
+    (member / "config.json").write_text(json.dumps({"member_id": "U100",
+        "kline_dir": str(member / "kline")}), encoding="utf-8")
+    realtime = tmp_path / "members" / "U100" / "realtime" / "latest.json"
+    realtime.parent.mkdir(parents=True)
+    realtime.write_text(json.dumps({"available": True, "data_date": "2026-09-01",
+                                    "actionable_alerts": [{"stock_id": "SH600000"}]}), encoding="utf-8")
+    server = member_service.ThreadingHTTPServer(("127.0.0.1", 0), MemberHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        body = urlopen(f"http://127.0.0.1:{server.server_port}/api/compat?callback=cb&action=signal").read().decode("utf-8")
+        assert '"ok": true' in body
+        assert '"stock_id": "SH600000"' in body
+        assert '"auction_radar"' not in body
     finally:
         server.shutdown()
         server.server_close()

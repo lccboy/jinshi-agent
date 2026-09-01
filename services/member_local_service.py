@@ -28,7 +28,7 @@ from services.local_license import (license_allows_member, load_license_cache,
 
 
 MEMBER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-HELPER_VERSION = "1.0.26"
+HELPER_VERSION = "1.0.27"
 _GENERATION_LOCK = threading.Lock()
 _GENERATION_THREADS = {}
 _SYNC_THREAD = None
@@ -707,7 +707,9 @@ def calculate_member_realtime(config, shared_root=None):
             except (TypeError, ValueError):
                 continue
             if entry.get("bp_pass") is True and rr >= 3 and stop < price <= buy * 1.05 and -4 <= chg < 8:
-                actionable.append({**hit, "buy_lo": buy, "stop": stop, "stop_pct": entry.get("stop_pct"),
+                actionable.append({**hit, "quality_score": entry.get("score"),
+                                   "confirm": entry.get("confirm") or {},
+                                   "buy_lo": buy, "stop": stop, "stop_pct": entry.get("stop_pct"),
                                    "rr": rr, "target": entry.get("target"), "level": "本地",
                                    "reasons": ["本地会员模型", "会员前复权K线"], "stars": entry.get("stars", 2)})
         model_hits.sort(key=lambda row: float(row.get("score") or 0), reverse=True)
@@ -1514,12 +1516,19 @@ class MemberHandler(BaseHTTPRequestHandler):
             try:
                 if action == "health":
                     body = {"ok": True, "service": "member-local", "private": True}
-                elif action == "realtime":
-                    member_id = query.get("member_id", [""])[0]
+                elif action in ("realtime", "signal"):
+                    member_id = query.get("member_id", [""])[0] or self._active_member_id()
                     if not self._member_authorized(member_id):
                         body = {"ok": False, "error": "会员授权无效"}
                         return self._send_script(200, callback, body)
                     data = load_member_realtime(member_id, self.members_root)
+                    if data and action == "signal":
+                        latest = data
+                        data = {key: data.get(key) for key in
+                                ("available", "member_id", "data_date", "ts", "quote_count")}
+                        data["actionable_alerts"] = (latest.get("actionable_alerts") or [])[:30]
+                        data["model_hits"] = (latest.get("model_hits") or [])[:500]
+                        data["events"] = (latest.get("events") or [])[:200]
                     body = {"ok": bool(data), "data": data, "error": "本地策略结果尚未生成" if not data else ""}
                 else:
                     body = {"ok": False, "error": "action 不合法"}
