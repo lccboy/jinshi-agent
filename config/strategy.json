@@ -1,46 +1,109 @@
 {
   "version": "1.0",
+  "alert_pool": {
+    "top_n": 30,
+    "model_hit_first": true,
+    "min_score": 60
+  },
+  "strategy_pool": {
+    "require_buy_point": true,
+    "min_score": 70,
+    "publish_raw": false
+  },
+  "auction_radar": {
+    "version": "1.2-auction-only",
+    "enabled": true,
+    "trajectory": {
+      "final_gap_min": 0.01,
+      "final_gap_max": 0.07,
+      "min_auction_amount": 10000000,
+      "min_yesterday_amount_ratio": 0.03,
+      "min_yesterday_max_1m_volume_ratio": 1.0,
+      "sector_sync_min": 2,
+      "candidate_caps": {
+        "S": 5,
+        "A": 15
+      }
+    },
+    "sandwich": {
+      "startup_return_20d_max": 0.6,
+      "platform_days_min": 5,
+      "platform_days_max": 30,
+      "platform_drawdown_max": 0.18,
+      "late_volume_ratio_max": 0.75,
+      "breakout_volume_ratio_min": 1.5,
+      "support_tolerance": 0.03
+    },
+    "high_confidence": {
+      "mode": "shadow",
+      "depth_collection": {
+        "enabled": false,
+        "source": "eltdx",
+        "max_candidates": 100,
+        "timeout_seconds": 3,
+        "hosts": [],
+        "max_daily_bytes": 15728640,
+        "min_free_bytes": 5368709120,
+          "poll_slots": [
+            "09:23:00",
+            "09:24:00",
+            "09:24:30",
+          "09:24:45",
+          "09:24:57",
+          "09:25:03"
+        ],
+        "gap_min": 0.01,
+          "gap_max": 0.3
+      }
+    },
+    "quality_gate": {
+      "fail_closed": true,
+      "max_latency_seconds": 10,
+      "min_quote_coverage": 0.95,
+      "max_critical_gap_seconds": 20
+    }
+  },
   "models": {
     "reversal": {
       "name": "①低吸反转",
       "enabled": true,
-      "family": "",
+      "family": "reversal",
       "params": {}
     },
     "breakout": {
       "name": "②横盘突破",
       "enabled": true,
-      "family": "",
+      "family": "breakout",
       "params": {}
     },
     "weekly": {
       "name": "③周线堆量",
       "enabled": true,
-      "family": "",
+      "family": "trend",
       "params": {}
     },
     "dwm": {
       "name": "④日周月堆量主升共振",
       "enabled": true,
-      "family": "",
+      "family": "trend",
       "params": {}
     },
     "lowstart": {
       "name": "⑤低位启动",
       "enabled": true,
-      "family": "",
+      "family": "reversal",
       "params": {}
     },
     "volbrk": {
       "name": "⑥突破放量",
       "enabled": true,
-      "family": "",
+      "family": "breakout",
       "params": {}
     },
     "perfect_ten": {
       "name": "⑦十全十美",
       "enabled": true,
-      "family": "",
+      "family": "money",
       "params": {
         "min_conditions": 7,
         "note": "min_conditions=7 仅用 OHLCV 7 条件（无 L2 数据）；若后续接入 MMS/MMM/主力等 L2 数据，可调回 11"
@@ -49,7 +112,7 @@
     "golden_vol": {
       "name": "⑧金量买入",
       "enabled": true,
-      "family": "",
+      "family": "money",
       "params": {
         "window": 3,
         "vol_mult": 1.2
@@ -58,56 +121,125 @@
     "hub_breakout": {
       "name": "⑨中枢突破",
       "enabled": true,
-      "family": "",
+      "family": "breakout",
       "params": {}
     },
     "div_reversal": {
       "name": "⑩背驰反转",
       "enabled": true,
-      "family": "",
+      "family": "reversal",
       "params": {}
     },
     "ma_momentum": {
       "name": "⑪多头排列",
       "enabled": true,
-      "family": "",
+      "family": "trend",
       "params": {}
     },
     "bottom_rev": {
       "name": "⑫底部起涨",
       "enabled": true,
-      "family": "",
+      "family": "reversal",
       "params": {}
     },
     "multi_factor": {
       "name": "⑬多因共振",
       "enabled": true,
-      "family": "",
+      "family": "trend",
       "params": {}
     },
     "sub_low": {
       "name": "⑭低吸型",
       "enabled": true,
-      "family": "",
+      "family": "sub",
       "params": {}
     },
     "sub_trend_vol": {
       "name": "⑮趋势放量型",
       "enabled": true,
-      "family": "",
+      "family": "sub",
       "params": {}
     },
     "sub_breakout": {
       "name": "⑯突破型",
       "enabled": true,
-      "family": "",
+      "family": "sub",
       "params": {}
     },
     "sub_main": {
       "name": "⑰主升型",
       "enabled": true,
-      "family": "",
+      "family": "sub",
       "params": {}
+    },
+    "weekly_platform_breakout": {
+      "name": "⑱周线放量平台突破",
+      "enabled": true,
+      "family": "weekly",
+      "params": {
+        "platform_weeks_min": 12,
+        "platform_weeks_max": 52,
+        "platform_amp_max": 0.25,
+        "breakout_pct": 0.03,
+        "volume_ratio": 1.5
+      }
+    },
+    "weekly_pullback": {
+      "name": "⑲周线回踩企稳",
+      "enabled": true,
+      "family": "weekly",
+      "params": {
+        "platform_weeks_min": 12,
+        "platform_weeks_max": 52,
+        "platform_amp_max": 0.25,
+        "breakout_pct": 0.03,
+        "volume_ratio": 1.5,
+        "breakout_lookback": 8,
+        "support_tolerance": 0.03,
+        "small_body_ratio": 0.35,
+        "pullback_volume_max": 0.75
+      }
+    },
+    "weekly_macd_second_cross": {
+      "name": "⑳周线MACD二次金叉",
+      "enabled": true,
+      "family": "weekly",
+      "params": {
+        "cross_lookback": 26,
+        "dif_zero_floor": 0.0
+      }
+    },
+    "weekly_ma_bull": {
+      "name": "㉑周线均线多头",
+      "enabled": true,
+      "family": "weekly",
+      "params": {
+        "support_tolerance": 0.03,
+        "breakout_volume_ratio": 1.5
+      }
+    },
+    "weekly_double_volume": {
+      "name": "㉒周线倍量阳线",
+      "enabled": true,
+      "family": "weekly",
+      "params": {
+        "volume_ratio": 2.0,
+        "min_body_ratio": 0.35,
+        "max_upper_shadow_ratio": 0.3,
+        "formation_lookback": 6,
+        "support_tolerance": 0.03
+      }
+    },
+    "sandwich": {
+      "name": "㉓夹心板",
+      "enabled": true,
+      "family": "pattern",
+      "params": {
+        "signal_states": [
+          "near_breakout",
+          "second_launch"
+        ]
+      }
     }
   }
 }

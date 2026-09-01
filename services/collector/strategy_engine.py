@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """策略引擎（V0.3 任务 3）
 
-流程：读 `config/strategy.json`（可编辑）→ 遍历 universe（data/kline/）→ 17 模型命中
+流程：读 `config/strategy.json`（可编辑）→ 遍历 universe（data/kline/）→ 23 模型命中
 → 买点评分（STRATEGY_MODEL §4）→ 叠加层确认（sectors/money_flow/leading_reason facts + master 归属）
 → 写 `facts/<date>/strategy.json`（run_id）、`pool.json`（alert/candidate + confirm/stars）、`events.json`（signal_hit）、`runs/strategy_runs.json`。
 """
@@ -22,12 +22,25 @@ def load_config(path="config/strategy.json"):
         return json.load(fh)
 
 
-def load_kline(sid, kline_dir):
+def build_model_ctx(common_ctx, cfg, model_id):
+    """公共上下文 + 当前模型独有参数；不让同名参数在模型之间串用。"""
+    ctx = dict(common_ctx)
+    if model_id == "sandwich":
+        ctx.update(cfg.get("auction_radar", {}).get("sandwich", {}))
+        ctx["config_version"] = cfg.get("auction_radar", {}).get("version", cfg.get("version", "1.0"))
+    ctx.update(cfg.get("models", {}).get(model_id, {}).get("params", {}))
+    return ctx
+
+
+def load_kline(sid, kline_dir, asof=None):
     path = os.path.join(kline_dir, f"{sid}.json")
     if not os.path.exists(path):
         return None
     with open(path, encoding="utf-8") as fh:
-        return json.load(fh)["bars"]
+        bars = json.load(fh)["bars"]
+    if asof:
+        bars = [b for b in bars if b.get("d") and int(b["d"]) <= int(asof)]
+    return bars
 
 
 def _bell(x, lo, hi, hard_lo, hard_hi):
@@ -41,7 +54,7 @@ def _bell(x, lo, hi, hard_lo, hard_hi):
 
 
 def buy_point(bars, hits, cfg):
-    """STRATEGY_MODEL §4 买点评分；不满足过滤返回 None。"""
+    """STRATEGY_MODEL §4 买点评分；总是返回计算结果，过滤结论以 bp_pass 标记。"""
     closes = [b["c"] for b in bars]
     highs = [b["h"] for b in bars]
     lows = [b["l"] for b in bars]
@@ -90,6 +103,10 @@ def buy_point(bars, hits, cfg):
     elif "sub_trend_vol" in models or "sub_breakout" in models:
         support = max(highs[-21:-1])
         stop, buy_lo = support * 0.98, support * 1.001
+    elif "sandwich" in models:
+        support = hits["sandwich"].get("platform_upper") or ma5
+        invalidation = hits["sandwich"].get("invalidation_price") or support * 0.97
+        stop, buy_lo = invalidation, support * 1.001
     else:
         stop, buy_lo = ma10 * 0.97, ma5 * 0.995
     stop = min(stop, c * 0.985)
@@ -108,10 +125,9 @@ def buy_point(bars, hits, cfg):
     score = round(s_bias + s_chg + s_vol + s_risk + s_rr + s_close + s_fam, 1)
 
     flt = bp_cfg.get("filter", {})
-    if rr < flt.get("min_rr", 3.0) or risk / c * 100 > flt.get("max_stop_pct", 4.0):
-        return None
+    bp_pass = not (rr < flt.get("min_rr", 3.0) or risk / c * 100 > flt.get("max_stop_pct", 4.0))
     return {"score": score, "buy_lo": round(buy_lo, 3), "stop": round(stop, 3), "target": round(target, 3),
-            "rr": round(rr, 1)}
+            "rr": round(rr, 1), "bp_pass": bp_pass}
 
 
 def load_facts(date_str, out_root):
@@ -143,7 +159,12 @@ def load_membership(out_root):
 
 def cap_alert_pool(pools, top_n):
     """落实 alert_pool.top_n：预警只保留最高分，其余降为候选而不丢失。"""
-    ranked = sorted((pools.get("alert") or {}).items(), key=lambda item: item[1].get("score", 0), reverse=True)
+    def rank_key(item):
+        sid, entry = item
+        confirm = entry.get("confirm") or {}
+        return (-int(entry.get("stars") or 0), -sum(bool(v) for v in confirm.values()),
+                -float(entry.get("score") or 0), -len(entry.get("model_hit") or []), str(sid))
+    ranked = sorted((pools.get("alert") or {}).items(), key=rank_key)
     keep = ranked[:max(0, int(top_n))]
     overflow = ranked[max(0, int(top_n)):]
     pools["alert"] = dict(keep)
@@ -153,14 +174,39 @@ def cap_alert_pool(pools, top_n):
     return pools
 
 
-def run_strategy(date_str, kline_dir, out_root, config_path="config/strategy.json", universe=None):
+def pool_admission(entry, cfg):
+    """正式展示池准入；原始模型命中仍全部保留在 strategy.json。"""
+    policy = cfg.get("strategy_pool") or {}
+    if policy.get("require_buy_point", True) and entry.get("bp_pass") is not True:
+        return False
+    return float(entry.get("score") or 0) >= float(policy.get("min_score", 70))
+
+
+def load_preserved_pool(out_root, date_str):
+    """策略重跑只接管普通 alert/candidate，保留其它事件驱动与人工状态。"""
+    path = os.path.join(out_root, "facts", date_str, "pool.json")
+    existing = {}
+    if os.path.exists(path):
+        with open(path, encoding="utf-8") as fh:
+            existing = json.load(fh)
+    source = existing.get("pools") or {}
+    pools = {key: dict(source.get(key) or {}) for key in ("limitup", "ladder", "watchlist")}
+    for key in ("alert", "candidate"):
+        pools[key] = {sid: entry for sid, entry in (source.get(key) or {}).items()
+                      if isinstance(entry, dict) and entry.get("signal_family") == "auction_radar"}
+    return {"pools": pools, "removed": dict(existing.get("removed") or {})}
+
+
+def run_strategy(date_str, kline_dir, out_root, config_path="config/strategy.json", universe=None, asof=None,
+                 facts_override=None, membership_override=None):
+    """asof：YYYYMMDD int/str，传入则所有 kline 切片到该日（历史回填重跑用）。"""
     cfg = load_config(config_path)
-    facts = load_facts(date_str, out_root)
-    membership = load_membership(out_root)
+    facts = facts_override if facts_override is not None else load_facts(date_str, out_root)
+    membership = membership_override if membership_override is not None else load_membership(out_root)
 
     # RS 基准：指数 20 日收益
     index_sid = cfg.get("data", {}).get("rs_index", "SH000001")
-    index_bars = load_kline(index_sid, kline_dir)
+    index_bars = load_kline(index_sid, kline_dir, asof=asof)
     index_ret20 = index_bars[-1]["c"] / index_bars[-21]["c"] - 1 if index_bars and len(index_bars) > 21 else 0.0
 
     if universe is None:
@@ -176,28 +222,22 @@ def run_strategy(date_str, kline_dir, out_root, config_path="config/strategy.jso
     universe = [s for s in universe if s != index_sid]
 
     run_id = date_str.replace("-", "") + "_" + datetime.datetime.now().strftime("%H%M")
-    strategy, pool, events = {}, {"pools": {"alert": {}, "candidate": {}, "limitup": {}, "ladder": {}, "watchlist": {}}}, []
+    strategy, pool = {}, load_preserved_pool(out_root, date_str)
 
     enabled = [m for m, conf in cfg.get("models", {}).items() if conf.get("enabled", True)]
     min_score = cfg.get("alert_pool", {}).get("min_score", 60)
 
     for sid in universe:
-        bars = load_kline(sid, kline_dir)
+        bars = load_kline(sid, kline_dir, asof=asof)
         if not bars or len(bars) < 30:
             continue
         stock_ret20 = bars[-1]["c"] / bars[-21]["c"] - 1 if len(bars) > 21 else 0.0
-        ctx = {"code": sid[2:], "rs20": stock_ret20 - index_ret20}
-        if "perfect_ten" in cfg.get("models", {}):
-            ctx["min_conditions"] = cfg["models"]["perfect_ten"].get("params", {}).get("min_conditions", 7)
-        if "golden_vol" in cfg.get("models", {}):
-            gv_params = cfg["models"]["golden_vol"].get("params", {})
-            ctx["window"] = gv_params.get("window", 3)
-            ctx["vol_mult"] = gv_params.get("vol_mult", 1.2)
+        common_ctx = {"code": sid[2:], "rs20": stock_ret20 - index_ret20}
 
         hits = {}
         for mid in enabled:
             try:
-                hit, score, detail = MODELS[mid](bars, ctx)
+                hit, score, detail = MODELS[mid](bars, build_model_ctx(common_ctx, cfg, mid))
             except Exception:
                 continue
             if hit:
@@ -206,7 +246,9 @@ def run_strategy(date_str, kline_dir, out_root, config_path="config/strategy.jso
         if not hits:
             continue
         bp = buy_point(bars, hits, cfg)
-        score = bp["score"] if bp else max(h["score"] for h in hits.values())
+        bp_pass = bool(bp and bp.get("bp_pass"))
+        # 评分口径不变：过滤通过用买点评分，否则用模型最高分；买点字段始终落盘供前端展示
+        score = bp["score"] if bp_pass else max(h["score"] for h in hits.values())
         models_out = {m: round(h["score"], 1) for m, h in hits.items()}
 
         secs = membership.get(sid, [])
@@ -217,14 +259,15 @@ def run_strategy(date_str, kline_dir, out_root, config_path="config/strategy.jso
         strategy[sid] = {"run_id": run_id, "models": models_out, "score": score,
                          "buy_point": bp["buy_lo"] if bp else None, "target": bp["target"] if bp else None,
                          "stop": bp["stop"] if bp else None, "stop_pct": stop_pct, "rr": bp["rr"] if bp else None,
+                         "bp_pass": bp_pass,
                          "confirm": confirm, "stars": stars}
         pool_entry = {"entry_time": datetime.datetime.now().strftime("%H:%M"), "score": score,
                       "status": "active", "model_hit": sorted(models_out), "confirm": confirm, "stars": stars,
                       "buy_point": bp["buy_lo"] if bp else None, "stop": bp["stop"] if bp else None,
-                      "stop_pct": stop_pct, "rr": bp["rr"] if bp else None, "target": bp["target"] if bp else None}
-        pool["pools"]["alert" if score >= min_score else "candidate"][sid] = pool_entry
-        events.append({"ts": f"{date_str}T{datetime.datetime.now().strftime('%H:%M:%S')}", "type": "signal_hit",
-                       "stock_id": sid, "score": score, "detail": "策略引擎 17 模型盘后扫描", "source": "tdx_model"})
+                      "stop_pct": stop_pct, "rr": bp["rr"] if bp else None, "target": bp["target"] if bp else None,
+                      "bp_pass": bp_pass}
+        if pool_admission(pool_entry, cfg):
+            pool["pools"]["alert" if score >= min_score else "candidate"][sid] = pool_entry
 
     cap_alert_pool(pool["pools"], cfg.get("alert_pool", {}).get("top_n", 30))
 
@@ -234,9 +277,6 @@ def run_strategy(date_str, kline_dir, out_root, config_path="config/strategy.jso
         json.dump(strategy, fh, ensure_ascii=False, indent=2)
     with open(os.path.join(day_dir, "pool.json"), "w", encoding="utf-8") as fh:
         json.dump({"data_date": date_str, **pool}, fh, ensure_ascii=False, indent=2)
-    with open(os.path.join(day_dir, "events.json"), "w", encoding="utf-8") as fh:
-        json.dump({"data_date": date_str, "events": events}, fh, ensure_ascii=False, indent=2)
-
     runs_dir = os.path.join(out_root, "runs")
     os.makedirs(runs_dir, exist_ok=True)
     runs_path = os.path.join(runs_dir, "strategy_runs.json")
@@ -260,6 +300,7 @@ def main(argv=None):
     ap.add_argument("--out", default="data", help="数据根目录（默认 data）")
     ap.add_argument("--config", default="config/strategy.json", help="策略配置（默认 config/strategy.json）")
     ap.add_argument("--universe-file", help="universe 名单（每行一个 stock_id，缺省扫描 kline 目录）")
+    ap.add_argument("--asof", help="kline 切片到该日 YYYYMMDD（历史回填重跑；缺省用全量 bars）")
     args = ap.parse_args(argv)
 
     universe = None
@@ -268,7 +309,7 @@ def main(argv=None):
             universe = [ln.strip() for ln in fh if ln.strip()]
         # 兼容裸 6 位代码 → 归一为 stock_id（SZ300487）
         universe = [stock_id(s) if len(s) == 6 and s.isdigit() else s for s in universe]
-    report = run_strategy(args.date, args.kline, args.out, args.config, universe)
+    report = run_strategy(args.date, args.kline, args.out, args.config, universe, asof=args.asof)
     print(f"[OK] run={report['run_id']} 命中={report['hits']} 预警={report['alert']} 候选={report['candidate']}")
     return 0
 

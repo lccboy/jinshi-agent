@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>金十DSH 会员工作台使用指南</title>
+  <style>
+    :root{color-scheme:dark;--bg:#10141a;--card:#171d25;--line:#303946;--text:#d8dee9;--muted:#96a0ad;--red:#e05555;--green:#58c784}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.75 Arial,"Microsoft YaHei",sans-serif}
+    header{border-bottom:1px solid var(--line);background:linear-gradient(120deg,#1a2029,#25191d)}
+    header div,main{max-width:980px;margin:auto;padding:28px 24px}h1{margin:0;font-size:26px}header p{margin:7px 0 0;color:var(--muted)}
+    nav{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}nav a,.button{padding:7px 12px;border:1px solid var(--line);border-radius:7px;color:var(--text);text-decoration:none;background:#202733}
+    section{margin:14px 0;padding:20px 22px;border:1px solid var(--line);border-radius:10px;background:var(--card)}h2{margin:0 0 10px;font-size:19px;color:#fff}
+    ol,ul{padding-left:24px}code{padding:2px 5px;border-radius:4px;background:#0d1117;color:#f0b45d}strong{color:#fff}.ok{color:var(--green)}.warn{color:#ffb86b}
+    table{width:100%;border-collapse:collapse}th,td{padding:8px 10px;border:1px solid var(--line);text-align:left}th{background:#202733}@media(max-width:640px){header div,main{padding:20px 14px}section{padding:17px 15px}}
+  </style>
+</head>
+<body>
+<header><div><h1>金十DSH 会员本地一体化工作台</h1><p>安装、授权、通达信日 K、公共数据同步和日常使用指南</p></div></header>
+<main>
+  <nav><a href="#install">安装</a><a href="#license">会员授权</a><a href="#tdx">通达信数据</a><a href="#daily">日常使用</a><a href="#watch">自选池</a><a href="#trouble">故障排查</a></nav>
+  <section id="install"><h2>一、安装与升级</h2><ol><li>下载最新版 <a class="button" href="downloads/JinshiDSH-Workbench-1.0.25.zip">工作台 ZIP</a>。</li><li>完整解压 ZIP，不能直接在压缩包里运行脚本。</li><li>在解压目录打开 PowerShell，运行：<code>.\install-member-workbench.ps1</code>。</li><li>默认程序和数据放在 <code>H:\JinshiDSH</code>；升级只替换程序，保留会员数据。</li><li>安装完成后打开 <code>http://127.0.0.1:8790/</code>。</li></ol></section>
+  <section id="license"><h2>二、会员授权</h2><ol><li>进入右上角“会员中心 → 会员授权”。</li><li>输入激活码并校验；新会员可以申请 5 天试用。</li><li>状态显示<span class="ok">授权有效</span>后，才会启用会员本地策略、自选池和私有 K 线。</li></ol></section>
+  <section id="tdx"><h2>三、配置通达信日 K</h2><ol><li>进入“会员中心 → 通达信数据 → 打开本地配置”。</li><li>选择通达信 <code>vipdoc</code> 目录。</li><li>选择通达信根目录，工作台会自动查找 <code>T0002\hq_cache\gbbq</code> 权息数据。</li><li>点击“保存配置并生成会员 K 线”。前复权 K 线只保存在会员电脑，不上传服务器。</li></ol></section>
+  <section id="daily"><h2>四、怎么看是否正常运行</h2><table><tr><th>状态</th><th>含义</th></tr><tr><td>监控中</td><td>公共数据、授权和会员策略计算均正常。</td></tr><tr><td>计算中</td><td>首次安装或 K 线/策略升级后正在重算，完成后自动恢复。</td></tr><tr><td>数据不完整</td><td>等待服务器公共数据同步完成。</td></tr><tr><td>授权失效</td><td>回到会员中心重新校验激活码。</td></tr></table><p>七个 TAB 的公共行情、题材和板块数据来自服务器；会员前复权策略、自选和私有结果在本机生成。</p></section>
+  <section id="watch"><h2>五、自选池</h2><ul><li>点击个股旁边的“＋”或“加自选”，事件写入当前会员的本地目录。</li><li>历史选股 TAB 的“我的自选池”读取会员本地快照，不会与其他会员混用。</li><li>加入失败时页面会显示具体错误；请确认访问地址是 <code>127.0.0.1:8790</code> 且会员授权有效。</li></ul></section>
+  <section id="trouble"><h2>六、常见问题</h2><ul><li><strong>HTTP 404：</strong>升级到最新版并按 <code>Ctrl+F5</code>。</li><li><strong>页面没有数据：</strong>先看会员中心“监控运行状态”，确认公共数据完整、授权有效、计算成功。</li><li><strong>首次重算较慢：</strong>全市场策略扫描可能需要数分钟，期间不要重复安装或关闭工作台。</li><li><strong>端口打不开：</strong>在任务管理器确认 <code>JinshiDSH-Workbench.exe</code> 正在运行。</li></ul></section>
+</main>
+</body>
+</html>
