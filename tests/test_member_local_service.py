@@ -862,6 +862,27 @@ def test_member_minute_volume_is_comparable_when_current_minute_has_no_peak_brea
     assert result["quality"]["status"] == "pass"
 
 
+def test_member_minute_volume_supports_five_explicit_ratio_bands():
+    public = {"available": True, "data_date": "2026-09-01", "rows": [
+        {"stock_id": "SH600001", "minute_volume": 50},
+        {"stock_id": "SH600002", "minute_volume": 90},
+        {"stock_id": "SH600003", "minute_volume": 105},
+        {"stock_id": "SH600004", "minute_volume": 160},
+        {"stock_id": "SH600005", "minute_volume": 210},
+    ]}
+    baseline = {"data_date": "2026-08-31", "source": "tdx_vipdoc_lc1", "private": True,
+                "quality": {"status": "pass"},
+                "stocks": {f"SH60000{i}": {"max_1m_volume": 100} for i in range(1, 6)}}
+    near = member_service.merge_member_minute_volume_source(
+        public, baseline, [], filter_name="near")
+    half = member_service.merge_member_minute_volume_source(
+        public, baseline, [], filter_name="half")
+    assert [row["stock_id"] for row in near["rows"]] == ["SH600002"]
+    assert len(half["rows"]) == 5
+    assert near["tier_counts"] == {"half": 5, "near": 1, "peak": 3,
+                                   "strong": 2, "extreme": 1}
+
+
 def test_monitoring_dashboard_summarizes_public_and_private_results(tmp_path):
     member = tmp_path / "members" / "vip_001"
     (member / "facts" / "2026-08-26").mkdir(parents=True)
@@ -976,7 +997,7 @@ def test_save_member_config_is_member_scoped(tmp_path):
 
 def test_frozen_helper_installs_only_in_current_user_directories(tmp_path):
     paths = install_paths(local_appdata=tmp_path / "Local", appdata=tmp_path / "Roaming")
-    assert paths["exe"] == tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.29.exe"
+    assert paths["exe"] == tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.33.exe"
     assert "Startup" in str(paths["startup"])
     command = startup_command(paths["exe"])
     assert str(paths["exe"]) in command
@@ -986,7 +1007,7 @@ def test_frozen_helper_installs_only_in_current_user_directories(tmp_path):
 def test_install_reuses_running_target_when_windows_denies_replacement(tmp_path, monkeypatch):
     source = tmp_path / "download.exe"
     source.write_bytes(b"new helper")
-    target = tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.29.exe"
+    target = tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.33.exe"
     startup = tmp_path / "Roaming" / "Startup" / "JinshiDSH-MemberHelper.cmd"
     target.parent.mkdir(parents=True)
     target.write_bytes(b"running helper")
@@ -1017,7 +1038,7 @@ def test_upgrade_knows_only_older_versioned_helper_process_names():
     assert "JinshiDSH-MemberHelper-1.0.9.exe" in names
     assert "JinshiDSH-MemberHelper-1.0.10.exe" in names
     assert "JinshiDSH-MemberHelper-1.0.11.exe" in names
-    assert "JinshiDSH-MemberHelper-1.0.29.exe" not in names
+    assert "JinshiDSH-MemberHelper-1.0.33.exe" not in names
 
 
 def test_jsonp_fallback_is_read_only_and_cannot_save_member_config(tmp_path):

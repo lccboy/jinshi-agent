@@ -28,7 +28,7 @@ from services.local_license import (license_allows_member, load_license_cache,
 
 
 MEMBER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-HELPER_VERSION = "1.0.29"
+HELPER_VERSION = "1.0.33"
 _GENERATION_LOCK = threading.Lock()
 _GENERATION_THREADS = {}
 _SYNC_THREAD = None
@@ -142,6 +142,22 @@ def _shared_web_document(shared_root, filename):
         except (OSError, json.JSONDecodeError):
             continue
     return {}
+
+
+def _stock_metadata_from_documents(*documents):
+    result = {}
+    stack = list(documents)
+    while stack:
+        value = stack.pop()
+        if isinstance(value, dict):
+            sid = str(value.get("stock_id") or "")
+            if re.fullmatch(r"(?:SH|SZ|BJ)\d{6}", sid):
+                result[sid] = {"n": value.get("name") or value.get("n") or sid,
+                               "s": value.get("sectors") or value.get("s") or []}
+            stack.extend(value.values())
+        elif isinstance(value, list):
+            stack.extend(value)
+    return result
 
 
 def materialize_member_strategy_archive(config, date_str, shared_root=None):
@@ -457,12 +473,9 @@ def _previous_private_minute_baseline(member_root, target_date):
 def build_member_minute_baseline(config, target_date, stock_ids, member_root=None):
     """生成/读取会员私有 LC1 基线；路径与原始分钟数据永不进入公共响应。"""
     root = Path(member_root or Path(config["kline_dir"]).resolve().parent)
-    existing = _previous_private_minute_baseline(root, target_date)
-    if existing:
-        return existing
     vipdoc = str(config.get("vipdoc") or "").strip()
     if not vipdoc:
-        return None
+        return _previous_private_minute_baseline(root, target_date)
     from services.collector.minute_volume_baseline import generate_vipdoc_lc1_baseline
     try:
         document, _ = generate_vipdoc_lc1_baseline(
@@ -473,7 +486,7 @@ def build_member_minute_baseline(config, target_date, stock_ids, member_root=Non
 
 
 def merge_member_minute_volume_source(public_source, baseline, history, *, min_ratio=1.0,
-                                      selected_sid=None, watchlist=None):
+                                      selected_sid=None, watchlist=None, filter_name=None):
     """把公共当天分钟量与会员本地 LC1 基线合并，返回仅供本机页面使用的结果。"""
     quality = (baseline or {}).get("quality") or {"status": "missing"}
     if quality.get("status") != "pass":
@@ -493,7 +506,15 @@ def merge_member_minute_volume_source(public_source, baseline, history, *, min_r
             ratio = float(volume) / float(peak)
         except (TypeError, ValueError, ZeroDivisionError):
             continue
-        if ratio < float(min_ratio):
+        matched = ((filter_name == "near" and 0.8 <= ratio < 1.0) or
+                   (filter_name == "half" and ratio >= 0.5) or
+                   (filter_name == "peak" and ratio >= 1.0) or
+                   (filter_name == "strong" and ratio >= 1.5) or
+                   (filter_name == "extreme" and ratio >= 2.0))
+        if filter_name and filter_name in {"near", "half", "peak", "strong", "extreme"}:
+            if not matched:
+                continue
+        elif ratio < float(min_ratio):
             continue
         row = dict(source_row)
         row.setdefault("name", sid)
@@ -527,14 +548,86 @@ def merge_member_minute_volume_source(public_source, baseline, history, *, min_r
                                    for item in current_series if item.get("price") is not None]}
     sectors = [{"sector_id": key, "count": value} for key, value in sector_counts.items()]
     sectors.sort(key=lambda item: (-item["count"], item["sector_id"]))
-    events = [{"ts": row.get("minute"), "type": "minute_peak_break",
+    events = [{"ts": row.get("minute"),
+               "type": "minute_peak_break" if row["volume_ratio"] >= 1 else "minute_near_peak",
                "stock_id": row["stock_id"], "name": row["name"],
-               "detail": f"首次超昨峰，达到 {row['volume_ratio']:.2f}×"} for row in rows[:20]]
+               "detail": (("首次超昨峰" if row["volume_ratio"] >= 1 else "接近昨日峰值") +
+                          f"，达到 {row['volume_ratio']:.2f}×")} for row in rows[:20]]
+    all_ratios = []
+    for source_row in (public_source or {}).get("rows") or []:
+        reference = baseline_stocks.get(source_row.get("stock_id")) or {}
+        try:
+            all_ratios.append(float(source_row.get("minute_volume")) /
+                              float(reference.get("max_1m_volume")))
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+    tiers = {"half": sum(value >= .5 for value in all_ratios),
+             "near": sum(.8 <= value < 1 for value in all_ratios),
+             "peak": sum(value >= 1 for value in all_ratios),
+             "strong": sum(value >= 1.5 for value in all_ratios),
+             "extreme": sum(value >= 2 for value in all_ratios)}
     return {"available": bool((public_source or {}).get("available")), "private": True,
             "data_date": (public_source or {}).get("data_date"),
             "minute": (public_source or {}).get("minute"), "rows": rows,
             "sectors": sectors, "detail": detail, "events": events, "quality": quality,
-            "baseline_date": baseline.get("data_date"), "baseline_source": baseline.get("source")}
+            "baseline_date": baseline.get("data_date"), "baseline_source": baseline.get("source"),
+            "filter": filter_name, "tier_counts": tiers}
+
+
+def run_member_minute_archive_once(members_root, data_date):
+    """为所有已配置会员生成指定日独立分钟归档；单会员失败不扩散。"""
+    results = []
+    from services.collector.minute_volume_baseline import archive_vipdoc_lc1_day, _lc1_path
+    for config_path in Path(members_root).glob("*/config.json"):
+        try:
+            config = json.loads(config_path.read_text(encoding="utf-8"))
+            vipdoc = str(config.get("vipdoc") or "")
+            kline_dir = Path(config.get("kline_dir") or config_path.parent / "kline")
+            stock_ids = [path.stem for path in kline_dir.glob("*.json")
+                         if re.fullmatch(r"(?:SH|SZ|BJ)\d{6}", path.stem) and
+                         (_lc1_path(vipdoc, path.stem) or Path()).is_file()]
+            manifest, path = archive_vipdoc_lc1_day(
+                vipdoc, data_date, stock_ids, config_path.parent,
+                expected_minutes=240, min_coverage=0.95)
+            results.append({"member_id": config_path.parent.name, "ok": True,
+                            "status": manifest.get("status"), "path": str(path)})
+        except Exception as exc:
+            results.append({"member_id": config_path.parent.name, "ok": False,
+                            "error": str(exc)})
+    return results
+
+
+def start_member_minute_archive_scheduler(members_root, runtime_root, *, now_fn=None,
+                                          interval=300, run_fn=None):
+    """15:20 后执行并在启动时补偿；状态独立，不阻塞公共同步。"""
+    now_fn = now_fn or (lambda: datetime.now().astimezone())
+    run_fn = run_fn or run_member_minute_archive_once
+    state_path = Path(runtime_root) / "member_minute_archive_state.json"
+
+    def worker():
+        while True:
+            now = now_fn()
+            day = now.date().isoformat()
+            state = {}
+            try:
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                pass
+            if now.weekday() < 5 and now.time() >= datetime.strptime("15:20", "%H:%M").time() \
+                    and state.get("completed_date") != day:
+                results = run_fn(members_root, day)
+                complete = bool(results) and all(item.get("ok") and item.get("status") == "complete"
+                                                 for item in results)
+                state = {"last_attempt_date": day, "updated_at": now.isoformat(),
+                         "results": results}
+                if complete:
+                    state["completed_date"] = day
+                _atomic_json(state_path, state)
+            time.sleep(max(30, int(interval)))
+
+    thread = threading.Thread(target=worker, name="member-minute-archive", daemon=True)
+    thread.start()
+    return thread
 
 
 def expand_public_minute_source(public_source):
@@ -1399,9 +1492,17 @@ class MemberHandler(BaseHTTPRequestHandler):
             min_ratio = max(0.0, float(query.get("ratio", [1.0])[0]))
         except (TypeError, ValueError):
             return self._send(400, {"ok": False, "error": "invalid ratio"})
+        filter_name = str(query.get("filter", [""])[0])
+        if filter_name and filter_name not in {"half", "near", "peak", "strong", "extreme"}:
+            return self._send(400, {"ok": False, "error": "invalid filter"})
         selected_sid = str(query.get("stock", [""])[0]) or None
         source_query = {key: list(value) for key, value in query.items()}
         source_query["source"] = ["1"]
+        requested_date = str(query.get("date", [""])[0])
+        slim = _shared_web_document(self.shared_root, "stocks_slim.json")
+        slim.update(_stock_metadata_from_documents(
+            _shared_web_document(self.shared_root, f"day_{requested_date}.sector.json")
+            if requested_date else {}))
 
         def fetch_source(stock=None):
             request_query = {key: list(value) for key, value in source_query.items()}
@@ -1412,8 +1513,17 @@ class MemberHandler(BaseHTTPRequestHandler):
             for upstream in dict.fromkeys((LOCAL_SERVER_API, self.upstream_api)):
                 try:
                     with urlopen(upstream.rstrip("/") + suffix, timeout=30) as response:
-                        source = json.loads(response.read().decode("utf-8-sig")).get("data") or {}
-                        return expand_public_minute_source(source)
+                        source = expand_public_minute_source(
+                            json.loads(response.read().decode("utf-8-sig")).get("data") or {})
+                        metadata = dict(slim)
+                        if not requested_date and source.get("data_date"):
+                            metadata.update(_stock_metadata_from_documents(_shared_web_document(
+                                self.shared_root, f'day_{source["data_date"]}.sector.json')))
+                        for row in source.get("rows") or []:
+                            master = metadata.get(row.get("stock_id")) or {}
+                            row["name"] = str(master.get("n") or row.get("name") or row.get("stock_id"))
+                            row.setdefault("sectors", list(master.get("s") or []))
+                        return source
                 except Exception as exc:
                     last_error = exc
             raise last_error or OSError("minute volume source unavailable")
@@ -1439,7 +1549,7 @@ class MemberHandler(BaseHTTPRequestHandler):
         watchlist = ((pool.get("pools") or {}).get("watchlist") or {})
         preview = merge_member_minute_volume_source(
             public_source, baseline, [], min_ratio=min_ratio,
-            selected_sid=selected_sid, watchlist=watchlist)
+            selected_sid=selected_sid, watchlist=watchlist, filter_name=filter_name)
         detail_sid = ((preview.get("detail") or {}).get("stock_id"))
         if detail_sid and ((public_source.get("detail") or {}).get("stock_id") != detail_sid):
             try:
@@ -1452,7 +1562,8 @@ class MemberHandler(BaseHTTPRequestHandler):
             history = build_vipdoc_lc1_history(config.get("vipdoc"), date_str, detail_sid, days=2)
         result = merge_member_minute_volume_source(
             public_source, baseline, history, min_ratio=min_ratio,
-            selected_sid=detail_sid or selected_sid, watchlist=watchlist)
+            selected_sid=detail_sid or selected_sid, watchlist=watchlist,
+            filter_name=filter_name)
         return self._send(200, {"data": result, "meta": {
             "data_date": result.get("data_date"),
             "source": "member_lc1+public_minute_volume", "private": True}})
@@ -1748,6 +1859,7 @@ def main(argv=None):
     MemberHandler.upstream_api = args.server_api or os.environ.get("JINSHI_SERVER_API") or REMOTE_SERVER_API
     start_public_sync(MemberHandler.shared_root, MemberHandler.upstream_api,
                       members_root=MemberHandler.members_root, runtime_root=MemberHandler.runtime_root)
+    start_member_minute_archive_scheduler(MemberHandler.members_root, MemberHandler.runtime_root)
     if sys.stdout:
         print(f"[OK] 会员本地数据助手 http://{args.host}:{args.port}", flush=True)
     ThreadingHTTPServer((args.host, args.port), MemberHandler).serve_forever()

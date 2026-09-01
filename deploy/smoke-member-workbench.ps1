@@ -1,4 +1,4 @@
-﻿param(
+param(
     [string]$Executable = "",
     [int]$Port = 8792
 )
@@ -6,7 +6,7 @@
 $ErrorActionPreference = "Stop"
 if ([string]::IsNullOrWhiteSpace($Executable)) {
     $Executable = [IO.Path]::GetFullPath([IO.Path]::Combine(
-        $PSScriptRoot, "..", "dist-member-workbench", "JinshiDSH-Workbench-1.0.29",
+        $PSScriptRoot, "..", "dist-member-workbench", "JinshiDSH-Workbench-1.0.33",
         "app", "JinshiDSH-Workbench", "JinshiDSH-Workbench.exe"))
 }
 if (-not (Test-Path -LiteralPath $Executable)) { throw "workbench executable not found" }

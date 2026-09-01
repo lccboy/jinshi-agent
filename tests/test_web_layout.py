@@ -70,7 +70,7 @@ def test_member_center_is_regular_split_page_and_offers_local_helper_download():
     assert "member-center-backdrop" not in html
     assert 'role="dialog"' not in html
     for marker in ("vMemberCenter", "currentView = 'member'", "member-helper-download",
-                   "JinshiDSH-Workbench-1.0.29.zip", "member-guide.html", "memberOpenLocalPage"):
+                   "JinshiDSH-Workbench-1.0.33.zip", "member-guide.html", "memberOpenLocalPage"):
         assert marker in js
     assert "memberRetryHelper" not in js
     for selector in (".member-page", ".member-page-nav", ".member-page-content"):

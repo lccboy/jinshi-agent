@@ -38,6 +38,7 @@ if ($LASTEXITCODE -ne 0) { throw "会员构建依赖不完整，请安装 deploy
     --hidden-import services.collector.auction_schema `
     --hidden-import services.collector.auction_storage `
     --hidden-import services.collector.auction_materialize `
+    --hidden-import services.collector.minute_volume_baseline `
     --collect-all eltdx `
     --hidden-import services.collector.realtime_engine --hidden-import services.collector.archive_job `
     --exclude-module pandas --exclude-module torch --exclude-module scipy `
