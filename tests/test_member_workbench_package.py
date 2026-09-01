@@ -20,9 +20,9 @@ def test_member_workbench_builder_uses_onedir_and_includes_complete_web_assets()
     assert ".venv-auction\\Scripts\\python.exe" in script
     assert "requirements-member-build.txt" in script
     for marker in ("services.auction_control", "services.collector.auction_depth_shadow",
-                   "services.collector.auction_source", "services.collector.auction_materialize",
-                   "eltdx"):
+                   "services.collector.auction_source", "services.collector.auction_materialize"):
         assert f"--hidden-import {marker}" in script
+    assert "--collect-all eltdx" in script
     for forbidden in ("data\\facts", "data\\kline", "vipdoc", "members\\"):
         assert forbidden not in script
 
@@ -35,6 +35,14 @@ def test_eltdx_is_member_only_and_never_installed_by_server_requirements():
     build_requirements = (ROOT / "deploy" / "requirements-member-build.txt").read_text(encoding="utf-8")
     assert "PyInstaller==6.20.0" in build_requirements
     assert "eltdx==3.0.8" in build_requirements
+
+
+def test_member_build_collects_eltdx_native_extension_and_smoke_checks_runtime():
+    build = (ROOT / "deploy" / "build-member-workbench.ps1").read_text(encoding="utf-8-sig")
+    smoke = (ROOT / "deploy" / "smoke-member-workbench.ps1").read_text(encoding="utf-8-sig")
+    assert "--collect-all eltdx" in build
+    assert "Test-EltdxNativeRuntime" in smoke
+    assert "eltdx/_native" in smoke.replace("\\", "/")
 
 
 def test_member_installer_is_per_user_versioned_and_preserves_data_on_uninstall():
@@ -89,11 +97,11 @@ def test_member_guide_covers_complete_first_run_and_daily_workflow():
 
 def test_server_web_build_publishes_zip_guide_and_excludes_legacy_helper():
     script = (ROOT / "deploy" / "build.ps1").read_text(encoding="utf-8-sig")
-    assert "JinshiDSH-Workbench-1.0.28.zip" in script
-    assert "JinshiDSH-Workbench-1.0.28.sha256.txt" in script
+    assert "JinshiDSH-Workbench-1.0.29.zip" in script
+    assert "JinshiDSH-Workbench-1.0.29.sha256.txt" in script
     assert "member-workbench-latest.json" in script
     assert "MEMBER-GUIDE.txt" in script
     assert "JinshiDSH-MemberHelper.exe" in script
     web = (ROOT / "apps" / "web" / "assets" / "app.js").read_text(encoding="utf-8")
-    assert "downloads/JinshiDSH-Workbench-1.0.28.zip" in web
+    assert "downloads/JinshiDSH-Workbench-1.0.29.zip" in web
     assert "member-guide.html" in web

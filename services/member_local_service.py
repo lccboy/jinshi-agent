@@ -28,7 +28,7 @@ from services.local_license import (license_allows_member, load_license_cache,
 
 
 MEMBER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-HELPER_VERSION = "1.0.28"
+HELPER_VERSION = "1.0.29"
 _GENERATION_LOCK = threading.Lock()
 _GENERATION_THREADS = {}
 _SYNC_THREAD = None

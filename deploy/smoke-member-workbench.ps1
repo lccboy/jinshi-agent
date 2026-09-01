@@ -6,10 +6,21 @@
 $ErrorActionPreference = "Stop"
 if ([string]::IsNullOrWhiteSpace($Executable)) {
     $Executable = [IO.Path]::GetFullPath([IO.Path]::Combine(
-        $PSScriptRoot, "..", "dist-member-workbench", "JinshiDSH-Workbench-1.0.28",
+        $PSScriptRoot, "..", "dist-member-workbench", "JinshiDSH-Workbench-1.0.29",
         "app", "JinshiDSH-Workbench", "JinshiDSH-Workbench.exe"))
 }
 if (-not (Test-Path -LiteralPath $Executable)) { throw "workbench executable not found" }
+
+function Test-EltdxNativeRuntime([string]$WorkbenchExecutable) {
+    $internal = Join-Path (Split-Path -Parent $WorkbenchExecutable) "_internal"
+    $native = Get-ChildItem -LiteralPath $internal -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.FullName.Replace("\", "/") -match "eltdx/_native.*\.pyd$" } |
+        Select-Object -First 1
+    if (-not $native) { throw "eltdx/_native extension missing from frozen workbench" }
+    return $native.FullName
+}
+
+$eltdxNative = Test-EltdxNativeRuntime $Executable
 $testRoot = Join-Path $env:TEMP "JinshiDSH-Frozen-Smoke"
 $process = Start-Process -FilePath $Executable -ArgumentList @(
     "--serve", "--host", "127.0.0.1", "--port", [string]$Port,
@@ -33,6 +44,7 @@ try {
         service = $health.service
         tabs = ([regex]::Matches($homeResponse.Content, "data-view=").Count)
         asset_status = $asset.StatusCode
+        eltdx_native = $eltdxNative
         data_root = $health.data_root
     } | ConvertTo-Json -Compress
 } finally {
