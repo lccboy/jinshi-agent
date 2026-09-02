@@ -1,6 +1,6 @@
 {
   "name": "金十DSH本地工作台",
-  "version": "1.0.34",
+  "version": "1.0.35",
   "entry_exe": "JinshiDSH-Workbench.exe",
   "port": 8790
 }

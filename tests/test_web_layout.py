@@ -70,7 +70,7 @@ def test_member_center_is_regular_split_page_and_offers_local_helper_download():
     assert "member-center-backdrop" not in html
     assert 'role="dialog"' not in html
     for marker in ("vMemberCenter", "currentView = 'member'", "member-helper-download",
-                   "JinshiDSH-Workbench-1.0.34.zip", "member-guide.html", "memberOpenLocalPage"):
+                   "JinshiDSH-Workbench-1.0.35.zip", "member-guide.html", "memberOpenLocalPage"):
         assert marker in js
     assert "memberRetryHelper" not in js
     for selector in (".member-page", ".member-page-nav", ".member-page-content"):
@@ -449,7 +449,7 @@ def test_signal_dashboard_renders_market_context_before_actionable_alerts():
     for selector in (".signal-market-dashboard", ".market-index-grid", ".signal-decision-grid"):
         assert selector in css
     html = (WEB / "index.html").read_text(encoding="utf-8")
-    assert "v=0.4.78-member-strategy-realtime" in html
+    assert "v=0.4.79-leading-date-guard" in html
     assert "signalDataIsToday" in js
     assert "最近收盘" in js
 
@@ -581,6 +581,13 @@ def test_leading_reason_tab_uses_realtime_source_and_updates_signal_card():
         assert selector in css
 
 
+def test_today_empty_leading_reason_never_falls_back_to_yesterday_archive():
+    js = (WEB / "assets" / "app.js").read_text(encoding="utf-8")
+    render = js[js.index("function render()"):
+                js.index("else if (currentView === 'auction')")]
+    assert "leading_reason: signalDataIsToday ? (signalRealtimePayload.leading_reason || [])" in render
+
+
 def test_signal_actionable_star_confirm_watch_columns_are_compact_and_sticky():
     js = (WEB / "assets" / "app.js").read_text(encoding="utf-8")
     css = (WEB / "assets" / "app.css").read_text(encoding="utf-8")
@@ -621,7 +628,7 @@ def test_signal_page_merges_member_local_realtime_from_helper():
 
 def test_index_cache_buster_covers_member_center_release():
     html = (WEB / "index.html").read_text(encoding="utf-8")
-    assert html.count("v=0.4.78-member-strategy-realtime") == 2
+    assert html.count("v=0.4.79-leading-date-guard") == 2
 
 
 def test_sector_leading_and_strategy_stocks_have_inline_watch_action():
@@ -863,7 +870,7 @@ def test_theme_master_libraries_use_data_revision_cache_buster():
     html = (WEB / "index.html").read_text(encoding="utf-8")
     load_lib = js[js.index("function loadLib"):js.index("function loadExpandLibs")]
     assert "name + '?v=' + DATA_VIEW_REV" in load_lib
-    assert html.count("v=0.4.78-member-strategy-realtime") == 2
+    assert html.count("v=0.4.79-leading-date-guard") == 2
 
 
 def test_member_historical_signal_uses_private_alert_pool_and_strategy_detail():
