@@ -55,7 +55,7 @@
   var watchlistStateLoading = false;
   var MEMBER_LICENSE_API = 'license-api', MEMBER_LICENSE_FALLBACK = 'http://114.132.236.131:18908/api';
   var DSH_LICENSE_KEY = '_dsh_lic_v1', MEMBER_DEVICE_KEY = '_dev_fp';
-  var MEMBER_WORKBENCH_VERSION = '1.0.33';
+  var MEMBER_WORKBENCH_VERSION = '1.0.34';
   var MEMBER_UPDATE_MANIFEST = 'downloads/member-workbench-latest.json';
   var memberLicenseState = null;
 
@@ -329,7 +329,7 @@
       '<div class="member-trial-box"><h2>新会员注册 · 免费试用 5 天</h2><p>每个手机号和每台设备仅可领取一次。</p><label>姓名或昵称<input id="memberTrialName" maxlength="40" placeholder="请输入姓名或昵称"></label><label>手机号<input id="memberTrialPhone" inputmode="numeric" maxlength="11" placeholder="请输入 11 位手机号"></label><div class="member-actions"><button id="memberRegisterTrial" type="button">注册并领取 5 天试用</button><span id="memberTrialMessage"></span></div></div><hr class="member-section-divider"><label>已有激活码<input id="memberLicenseCode" autocomplete="off" placeholder="AK-XXXX-XXXX-XXXX-X"></label><div class="member-actions"><button id="memberActivate" type="button">激活会员</button><button id="memberRevalidate" class="secondary" type="button">重新校验</button><button id="memberLogout" class="secondary" type="button">退出授权</button><span id="memberLicenseMessage"></span></div><label>云会员编号<input id="memberId" readonly placeholder="激活后自动绑定"></label></section>' +
       '<section data-member-content="data" hidden><h1>通达信数据</h1><p class="member-note">vipdoc、复权权息文件和生成的会员 K 线只保存在本机。' + (local ? '当前为本地工作台，可直接配置。' : '请先打开本地工作台后配置，公网页面不会读取或上传本机路径。') + '</p>' +
       (local ? '<label>vipdoc 目录<input id="memberVipdoc" placeholder="例如 H:\\new_tdx\\vipdoc"></label><label>通达信根目录（用于查找复权权息数据）<input id="memberTdxRoot" placeholder="例如 H:\\new_tdx"></label><label>已识别的 gbbq 文件<input id="memberGbbqPath" readonly></label><label>会员 K 线输出目录<input id="memberKlineDir" readonly></label><div class="member-actions"><button id="memberSaveConfig" type="button">保存并检查</button><button id="memberGenerateKline" class="secondary" type="button">生成会员 K 线</button><span id="memberConfigMessage"></span></div>' : '<button id="memberOpenLocalPage" class="member-retry-helper" type="button">打开 127.0.0.1:8790 本地工作台</button>') + '</section>' +
-      '<section data-member-content="upgrade" hidden><h1>安装与升级</h1><p class="member-note">以后新增或修改 TAB 页面和功能，通过版本化工作台包更新；安装程序只替换 app，继续使用原 data 数据目录。</p><div class="member-version-row"><span>当前页面版本 <b>' + MEMBER_WORKBENCH_VERSION + '</b></span><span>服务器最新版本 <b id="memberLatestVersion">未检查</b></span></div><div class="member-actions"><button id="memberCheckUpdate" type="button">检查更新</button><a id="memberUpdateDownload" class="member-helper-download" href="http://114.132.236.131/dsh/downloads/JinshiDSH-Workbench-1.0.33.zip" download>下载最新版</a></div><p id="memberUpdateState" class="member-note">检查更新后会显示升级结果。</p><a class="member-helper-download" href="http://114.132.236.131/dsh/downloads/JinshiDSH-Workbench-1.0.33.zip" download>下载本地一体化工作台 1.0.33</a><a class="member-helper-download" href="member-guide.html" target="_blank">查看安装与使用指南</a></section>' +
+      '<section data-member-content="upgrade" hidden><h1>安装与升级</h1><p class="member-note">以后新增或修改 TAB 页面和功能，通过版本化工作台包更新；安装程序只替换 app，继续使用原 data 数据目录。</p><div class="member-version-row"><span>当前页面版本 <b>' + MEMBER_WORKBENCH_VERSION + '</b></span><span>服务器最新版本 <b id="memberLatestVersion">未检查</b></span></div><div class="member-actions"><button id="memberCheckUpdate" type="button">检查更新</button><a id="memberUpdateDownload" class="member-helper-download" href="http://114.132.236.131/dsh/downloads/JinshiDSH-Workbench-1.0.34.zip" download>下载最新版</a></div><p id="memberUpdateState" class="member-note">检查更新后会显示升级结果。</p><a class="member-helper-download" href="http://114.132.236.131/dsh/downloads/JinshiDSH-Workbench-1.0.34.zip" download>下载本地一体化工作台 1.0.34</a><a class="member-helper-download" href="member-guide.html" target="_blank">查看安装与使用指南</a></section>' +
       '<section data-member-content="guide" hidden><h1>使用指南</h1><div class="member-helper-steps"><b>首次使用</b><ol><li>下载 ZIP，解压后运行 install-member-workbench.ps1</li><li>打开 127.0.0.1:8790，在会员授权页激活</li><li>在通达信数据页配置 vipdoc 和通达信根目录</li><li>生成会员 K 线，在总览确认“监控中”</li></ol><b>TAB 页面和功能更新</b><ol><li>打开“安装与升级”并检查更新</li><li>下载新版 ZIP，解压后再次运行安装脚本</li><li>原数据根目录和会员历史数据自动保留</li></ol></div></section></main></section>';
   }
   var DATA_VIEW_REV = '20260828-intraday-close-boundary-v1';
@@ -2242,8 +2242,10 @@
   function refreshStratRealtime() {
     if (!stratRealtime || currentView !== 'strategy') return;
     Promise.all([fetchJSON('api/intraday/latest', 'no-store').catch(function () { return null; }),
-                 fetchJSON('data/web/strategy_all.json').catch(function () { return null; })]).then(function (rs) {
+                 fetchJSON('data/web/strategy_all.json').catch(function () { return null; }),
+                 loadMemberLocalRealtime()]).then(function (rs) {
       var payload = rs[0] ? (rs[0].data || rs[0]) : null;
+      if (payload) payload = mergeMemberLocalRealtime(payload, rs[2]);
       var live = payload && payload.available && payload.data_date === localToday() && isMarketSession();
       if (!live) {
         // 盘中数据不可用（收盘/归档后）：今日已归档则自动回落归档视图，否则保持提示继续轮询
