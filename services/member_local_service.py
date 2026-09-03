@@ -28,7 +28,7 @@ from services.local_license import (license_allows_member, load_license_cache,
 
 
 MEMBER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-HELPER_VERSION = "1.0.37"
+HELPER_VERSION = "1.0.38"
 _GENERATION_LOCK = threading.Lock()
 _GENERATION_THREADS = {}
 _SYNC_THREAD = None
@@ -895,6 +895,34 @@ def load_member_realtime(member_id, members_root=None):
     return json.loads(path.read_text(encoding="utf-8")) if path.is_file() else None
 
 
+def project_member_history_pools(pool, data_date, limits=None):
+    """Build a bounded current-day history view from the existing local result."""
+    source = (pool or {}).get("pools") or (pool or {})
+    caps = {"alert": 30, "candidate": 100}
+    caps.update(limits or {})
+
+    def rank(item):
+        stock_id, row = item
+        confirm = row.get("confirm") or {}
+        confirmed = sum(1 for value in confirm.values() if value is True)
+        model_hit = row.get("model_hit") or row.get("model_hits") or []
+        return (-int(row.get("stars") or 0), -confirmed,
+                -float(row.get("score") or 0), -len(model_hit), stock_id)
+
+    projected = {}
+    summary = {}
+    for name in ("alert", "candidate"):
+        rows = source.get(name) or {}
+        items = rows.items() if isinstance(rows, dict) else []
+        eligible = [(stock_id, row) for stock_id, row in items
+                    if isinstance(row, dict) and row.get("signal_family") != "auction_radar"]
+        ordered = sorted(eligible, key=rank)
+        shown = ordered[:max(0, int(caps[name]))]
+        projected[name] = dict(shown)
+        summary[name] = {"total": len(eligible), "shown": len(shown)}
+    return {"data_date": data_date, "pools": projected}, summary
+
+
 def monitoring_dashboard(config, shared_root=None):
     member_root = Path(config.get("kline_dir") or "").resolve().parent
     shared = Path(shared_root or default_shared_root())
@@ -1678,6 +1706,10 @@ class MemberHandler(BaseHTTPRequestHandler):
                         data["actionable_alerts"] = (latest.get("actionable_alerts") or [])[:30]
                         data["model_hits"] = (latest.get("model_hits") or [])[:500]
                         data["events"] = (latest.get("events") or [])[:200]
+                        history_pools, history_summary = project_member_history_pools(
+                            latest.get("pool") or {}, latest.get("data_date"))
+                        data["history_pools"] = history_pools
+                        data["history_pool_summary"] = history_summary
                     body = {"ok": bool(data), "data": data, "error": "本地策略结果尚未生成" if not data else ""}
                 else:
                     body = {"ok": False, "error": "action 不合法"}
