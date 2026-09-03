@@ -28,7 +28,7 @@ from services.local_license import (license_allows_member, load_license_cache,
 
 
 MEMBER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-HELPER_VERSION = "1.0.35"
+HELPER_VERSION = "1.0.36"
 _GENERATION_LOCK = threading.Lock()
 _GENERATION_THREADS = {}
 _SYNC_THREAD = None
@@ -251,7 +251,7 @@ def sync_public_once(shared_root=None, server_api="http://114.132.236.131/dsh/ap
         if data.get("changed") and data.get("stocks") is not None:
             _atomic_json(root / "realtime" / "latest.json", data)
         try:
-            with opener(server_api.rstrip("/") + "/intraday/latest", timeout=20) as response:
+            with opener(server_api.rstrip("/") + "/intraday/latest?scope=core", timeout=20) as response:
                 public = json.loads(response.read().decode("utf-8")).get("data") or {}
             _atomic_json(root / "public" / "latest.json", public)
         except Exception:
@@ -846,7 +846,8 @@ def member_calculation_revision(config, shared_root=None):
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-def run_member_calculation_once(config, shared_root=None, calculate_fn=None, now=None):
+def run_member_calculation_once(config, shared_root=None, calculate_fn=None, now=None,
+                                min_interval_seconds=60):
     shared = Path(shared_root or default_shared_root())
     member_root = Path(config["kline_dir"]).resolve().parent
     state_path = member_root / "runtime" / "calculation_state.json"
@@ -858,6 +859,14 @@ def run_member_calculation_once(config, shared_root=None, calculate_fn=None, now
     if previous.get("revision") == revision and previous.get("status") == "success":
         return {**previous, "status": "skipped", "reason": "revision unchanged"}
     clock = now or datetime.now()
+    if previous.get("status") == "success" and previous.get("finished_at"):
+        try:
+            elapsed = (clock - datetime.fromisoformat(previous["finished_at"])).total_seconds()
+        except (TypeError, ValueError):
+            elapsed = min_interval_seconds
+        if elapsed < min_interval_seconds:
+            return {**previous, "status": "skipped", "reason": "minimum interval",
+                    "pending_revision": revision}
     run_id = f"member-{clock.strftime('%Y%m%dT%H%M%S')}-{revision[:12]}"
     running = {"schema_version": "member-calculation-v1", "run_id": run_id,
                "revision": revision, "status": "running",
@@ -1233,6 +1242,17 @@ def render_member_page(config=None, message="", error="", generation=None, dashb
 </main></div></body></html>'''
 
 
+def encode_json_transport(body, accept_encoding=""):
+    """Encode a JSON response once and apply bounded HTTP compression metadata."""
+    raw = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode("utf-8")
+    etag = '"' + hashlib.sha256(raw).hexdigest()[:24] + '"'
+    headers = {"ETag": etag}
+    if "gzip" in str(accept_encoding).lower() and len(raw) > 512:
+        raw = gzip.compress(raw, compresslevel=4)
+        headers["Content-Encoding"] = "gzip"
+    return raw, headers
+
+
 class MemberHandler(BaseHTTPRequestHandler):
     _paths = local_paths()
     data_root = _paths["root"]
@@ -1289,10 +1309,17 @@ class MemberHandler(BaseHTTPRequestHandler):
         return bool(supplied and secrets.compare_digest(supplied, self.local_token))
 
     def _send(self, status, body):
-        raw = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        raw, transport = encode_json_transport(body, self.headers.get("Accept-Encoding") or "")
+        if status == 200 and self.headers.get("If-None-Match") == transport["ETag"]:
+            self.send_response(304)
+            self.send_header("ETag", transport["ETag"])
+            self.end_headers()
+            return
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
+        for name, value in transport.items():
+            self.send_header(name, value)
         allowed_origin = self._allowed_origin()
         if allowed_origin:
             self.send_header("Access-Control-Allow-Origin", allowed_origin)
@@ -1415,6 +1442,16 @@ class MemberHandler(BaseHTTPRequestHandler):
     def _proxy_public_get(self):
         parsed = urlparse(self.path)
         suffix = parsed.path.removeprefix("/api/")
+        if suffix == "intraday/latest":
+            cached = Path(self.shared_root) / "public" / "latest.json"
+            try:
+                document = json.loads(cached.read_text(encoding="utf-8"))
+                return self._send(200, {"data": document, "meta": {
+                    "data_date": document.get("data_date"), "source": "member-local-cache",
+                    "fetched_at": datetime.fromtimestamp(cached.stat().st_mtime).isoformat(
+                        timespec="seconds")}})
+            except (OSError, ValueError, json.JSONDecodeError):
+                pass
         address = self.upstream_api.rstrip("/") + "/" + suffix
         if parsed.query:
             address += "?" + parsed.query

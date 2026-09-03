@@ -997,7 +997,7 @@ def test_save_member_config_is_member_scoped(tmp_path):
 
 def test_frozen_helper_installs_only_in_current_user_directories(tmp_path):
     paths = install_paths(local_appdata=tmp_path / "Local", appdata=tmp_path / "Roaming")
-    assert paths["exe"] == tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.35.exe"
+    assert paths["exe"] == tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.36.exe"
     assert "Startup" in str(paths["startup"])
     command = startup_command(paths["exe"])
     assert str(paths["exe"]) in command
@@ -1007,7 +1007,7 @@ def test_frozen_helper_installs_only_in_current_user_directories(tmp_path):
 def test_install_reuses_running_target_when_windows_denies_replacement(tmp_path, monkeypatch):
     source = tmp_path / "download.exe"
     source.write_bytes(b"new helper")
-    target = tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.35.exe"
+    target = tmp_path / "Local" / "JinshiDSH" / "bin" / "JinshiDSH-MemberHelper-1.0.36.exe"
     startup = tmp_path / "Roaming" / "Startup" / "JinshiDSH-MemberHelper.cmd"
     target.parent.mkdir(parents=True)
     target.write_bytes(b"running helper")
@@ -1038,7 +1038,7 @@ def test_upgrade_knows_only_older_versioned_helper_process_names():
     assert "JinshiDSH-MemberHelper-1.0.9.exe" in names
     assert "JinshiDSH-MemberHelper-1.0.10.exe" in names
     assert "JinshiDSH-MemberHelper-1.0.11.exe" in names
-    assert "JinshiDSH-MemberHelper-1.0.35.exe" not in names
+    assert "JinshiDSH-MemberHelper-1.0.36.exe" not in names
 
 
 def test_jsonp_fallback_is_read_only_and_cannot_save_member_config(tmp_path):

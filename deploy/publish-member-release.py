@@ -16,8 +16,8 @@ FILES = (
     "assets/app.css",
     "assets/app.js",
     "member-guide.html",
-    "downloads/JinshiDSH-Workbench-1.0.35.zip",
-    "downloads/JinshiDSH-Workbench-1.0.35.sha256.txt",
+    "downloads/JinshiDSH-Workbench-1.0.36.zip",
+    "downloads/JinshiDSH-Workbench-1.0.36.sha256.txt",
     "downloads/member-workbench-latest.json",
     "downloads/MEMBER-GUIDE.txt",
 )
@@ -48,7 +48,7 @@ def main():
     parser.add_argument("--port", type=int, default=22)
     parser.add_argument("--user", default="Administrator")
     parser.add_argument("--root", default="/C:/nginx/html/DSH")
-    parser.add_argument("--release", default="dist-member-release-1.0.35")
+    parser.add_argument("--release", default="dist-member-release-1.0.36")
     args = parser.parse_args()
 
     release = Path(args.release).resolve()
