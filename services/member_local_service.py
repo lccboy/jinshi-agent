@@ -28,7 +28,7 @@ from services.local_license import (license_allows_member, load_license_cache,
 
 
 MEMBER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-HELPER_VERSION = "1.0.36"
+HELPER_VERSION = "1.0.37"
 _GENERATION_LOCK = threading.Lock()
 _GENERATION_THREADS = {}
 _SYNC_THREAD = None
@@ -958,6 +958,7 @@ def build_runtime_status(data_root, shared_root, runtime_root, members_root, now
             "license": {"valid": license_valid, "member_id": member_id,
                         "plan": license_cache.get("plan"),
                         "expire_date": license_cache.get("expire_date"),
+                        "remaining_days": license_cache.get("remaining_days"),
                         "checked_at": license_cache.get("checked_at")},
             "calculation": calculation}
 
