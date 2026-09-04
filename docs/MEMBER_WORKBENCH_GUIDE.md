@@ -1,12 +1,12 @@
 # 金十DSH 会员本地一体化工作台安装与使用指南
 
-> 适用版本：1.0.22。会员本地数据默认放在 `H:\JinshiDSH\data`，不会上传 vipdoc、gbbq、K 线或私有策略结果。
+> 适用版本：1.0.42。会员本地数据默认放在 `H:\JinshiDSH\data`，不会上传 vipdoc、gbbq、K 线或私有策略结果。
 
 ## 1. 去哪里下载
 
-- 公网下载地址：`http://114.132.236.131/dsh/downloads/JinshiDSH-Workbench-1.0.22.zip`
-- 管理员本机发布包：`H:\projects\金十Agent\dist-member-workbench\JinshiDSH-Workbench-1.0.22.zip`
-- SHA-256 校验文件：`http://114.132.236.131/dsh/downloads/JinshiDSH-Workbench-1.0.22.sha256.txt`
+- 公网下载地址：`http://114.132.236.131/dsh/downloads/JinshiDSH-Workbench-1.0.42.zip`
+- 管理员本机发布包：`H:\projects\金十Agent\dist-member-workbench-1.0.42\JinshiDSH-Workbench-1.0.42.zip`
+- SHA-256 校验文件：`http://114.132.236.131/dsh/downloads/JinshiDSH-Workbench-1.0.42.sha256.txt`
 
 下载后先解压到临时目录，例如 `H:\JinshiDSH-Installer`。不要直接解压到正式数据目录 `H:\JinshiDSH\data`。
 
@@ -112,6 +112,12 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-member-workben
 ```
 
 ## 9. 常见问题
+
+### 1.0.42：授权维护与当天数据恢复
+
+已有授权从本地持久文件恢复，升级不需要重新输入激活码。后台每6小时云校验，失败至少5分钟后再试，不阻塞行情采集。网络失败不延长24小时离线许可，明确拒绝立即停止授权；会员到期规则不变。
+
+服务重启导致页面会话过期时，页面自动恢复同源会话并且只重试一次。收盘后当天策略显示带行情时间的“今日快照（非交易时段）”，不冒充实时行情，也不以昨天数据补今天。
 
 ### 1.0.39：后台恢复已经整合到主安装器
 

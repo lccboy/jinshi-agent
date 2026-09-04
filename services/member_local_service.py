@@ -25,11 +25,11 @@ from urllib.request import urlopen
 
 from services.auction_control import AuctionProcessManager, test_eltdx_connection
 from services.local_license import (license_allows_member, load_license_cache,
-                                    refresh_cloud_license)
+                                    refresh_cloud_license, start_license_maintenance)
 
 
 MEMBER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-HELPER_VERSION = "1.0.41"
+HELPER_VERSION = "1.0.42"
 _GENERATION_LOCK = threading.Lock()
 _GENERATION_THREADS = {}
 _SYNC_THREAD = None
@@ -988,7 +988,8 @@ def build_runtime_status(data_root, shared_root, runtime_root, members_root, now
                         "plan": license_cache.get("plan"),
                         "expire_date": license_cache.get("expire_date"),
                         "remaining_days": license_cache.get("remaining_days"),
-                        "checked_at": license_cache.get("checked_at")},
+                        "checked_at": license_cache.get("checked_at"),
+                        "refresh": read(Path(runtime_root) / 'license_refresh.json')},
             "calculation": calculation}
 
 
@@ -1939,6 +1940,7 @@ def main(argv=None):
     except BaseException:
         server.server_close()
         raise
+    start_license_maintenance(MemberHandler.runtime_root, MemberHandler.license_api)
     start_public_sync(MemberHandler.shared_root, MemberHandler.upstream_api,
                       members_root=MemberHandler.members_root, runtime_root=MemberHandler.runtime_root)
     start_member_minute_archive_scheduler(MemberHandler.members_root, MemberHandler.runtime_root)

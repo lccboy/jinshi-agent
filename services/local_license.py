@@ -3,8 +3,12 @@ import datetime
 import json
 import os
 import re
+import threading
 from pathlib import Path
 from urllib.request import Request, urlopen
+
+_LICENSE_LOCK = threading.RLock()
+_MAINTENANCE_THREAD = None
 
 
 def _cache_path(runtime_root):
@@ -31,6 +35,11 @@ def _save_license_cache(runtime_root, document):
 
 
 def refresh_cloud_license(action, payload, runtime_root, license_api, opener=urlopen, now=None):
+    with _LICENSE_LOCK:
+        return _refresh_cloud_license(action, payload, runtime_root, license_api, opener, now)
+
+
+def _refresh_cloud_license(action, payload, runtime_root, license_api, opener=urlopen, now=None):
     if action not in ("activate", "validate", "trial/register"):
         raise ValueError("unsupported license action")
     payload = dict(payload or {})
@@ -79,7 +88,65 @@ def refresh_cloud_license(action, payload, runtime_root, license_api, opener=url
                  "remaining_days": user.get("remaining_days"),
                  "checked_at": checked.isoformat(timespec="seconds")}
         _save_license_cache(runtime_root, cache)
+    elif document.get('success') is False and cached_code == code and cached.get('device_fingerprint') == device:
+        # Explicit cloud rejection is not a network outage; do not continue offline use.
+        _save_license_cache(runtime_root, {**cached, 'status': 'rejected'})
     return document
+
+
+def refresh_cached_license_if_due(runtime_root, license_api, now=None, refresher=None):
+    """Renew independently of market polling; never extend offline trust on failure."""
+    if not _LICENSE_LOCK.acquire(blocking=False):
+        return {'status': 'busy'}
+    try:
+        clock = now or datetime.datetime.now()
+        cache = load_license_cache(runtime_root)
+        if not cache.get('code') or not cache.get('device_fingerprint'):
+            return {'status': 'not_configured'}
+        try:
+            age = (clock - datetime.datetime.fromisoformat(cache.get('checked_at') or '')).total_seconds()
+            if 0 <= age < 6 * 3600 and license_allows_member(cache, cache.get('member_id'), cache.get('device_fingerprint'), now=clock):
+                return {'status': 'fresh'}
+        except (ValueError, TypeError):
+            pass
+        path = Path(runtime_root) / 'license_refresh.json'
+        try:
+            previous = json.loads(path.read_text(encoding='utf-8'))
+            elapsed = (clock - datetime.datetime.fromisoformat(previous['attempted_at'])).total_seconds()
+            if 0 <= elapsed < 300:
+                return previous
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+        state = {'attempted_at': clock.isoformat(timespec='seconds')}
+        try:
+            result = (refresher or refresh_cloud_license)('validate', {}, runtime_root, license_api, now=clock)
+            state['status'] = 'success' if result.get('success') is True else 'rejected'
+        except Exception as exc:
+            state.update(status='network_error', error_type=type(exc).__name__)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = path.with_suffix('.tmp')
+        temporary.write_text(json.dumps(state), encoding='utf-8')
+        os.replace(temporary, path)
+        return state
+    finally:
+        _LICENSE_LOCK.release()
+
+
+def start_license_maintenance(runtime_root, license_api):
+    global _MAINTENANCE_THREAD
+    if _MAINTENANCE_THREAD and _MAINTENANCE_THREAD.is_alive():
+        return _MAINTENANCE_THREAD
+    def worker():
+        import time
+        while True:
+            try:
+                refresh_cached_license_if_due(runtime_root, license_api)
+            except Exception:
+                pass  # Storage failure does not terminate market collection.
+            time.sleep(60)
+    _MAINTENANCE_THREAD = threading.Thread(target=worker, name='member-license-maintenance', daemon=True)
+    _MAINTENANCE_THREAD.start()
+    return _MAINTENANCE_THREAD
 
 
 def license_allows_member(cache, member_id, device_fingerprint, now=None, grace_hours=24):
