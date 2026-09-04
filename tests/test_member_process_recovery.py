@@ -39,7 +39,10 @@ function Start-Process {
     return $p
 }
 """
-    command = mocks + "\n& '" + str(SCRIPT) + "' -MemberRoot '" + str(tmp_path) + "' -Enabled"
+    isolated = tmp_path / 'guard-fixture.ps1'
+    isolated.write_text(SCRIPT.read_text(encoding='utf-8-sig').replace(
+        'JinshiDSH-MemberRecovery-8790', 'JinshiDSH-Recovery-Test-' + tmp_path.name), encoding='utf-8-sig')
+    command = mocks + "\n& '" + str(isolated) + "' -MemberRoot '" + str(tmp_path) + "' -Enabled"
     for _ in range(4):
         result = subprocess.run(['powershell', '-NoProfile', '-Command', command], capture_output=True, timeout=15)
         assert result.returncode == 0, result.stderr

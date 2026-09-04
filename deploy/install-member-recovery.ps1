@@ -31,14 +31,15 @@ if (-not (Test-Path -LiteralPath (Join-Path $root 'install_state.json'))) { thro
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'member-process-recovery.ps1') -Destination $script -Force
 $shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $arguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $script + '" -MemberRoot "' + $root + '" -Enabled'
-$action = New-ScheduledTaskAction -Execute $shell -Argument $arguments
 $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
-$login = New-ScheduledTaskTrigger -AtLogOn -User $user
-$repeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)
-$principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
-$settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Seconds 45) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 try {
-    Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($login,$repeat) -Principal $principal -Settings $settings -Force | Out-Null
+    $action = New-ScheduledTaskAction -Execute $shell -Argument $arguments -ErrorAction Stop
+    $login = New-ScheduledTaskTrigger -AtLogOn -User $user -ErrorAction Stop
+    $repeat = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1) -ErrorAction Stop
+    $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited -ErrorAction Stop
+    $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Seconds 45) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ErrorAction Stop
+    $registered = Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($login,$repeat) -Principal $principal -Settings $settings -Force -ErrorAction Stop
+    if (-not $registered) { throw 'Task registration returned no result' }
     $mode = 'scheduled_task'
 } catch {
     # Supported per-user fallback, never elevate or modify a protected registry key.
@@ -51,11 +52,21 @@ try {
         $mode = 'session_only'
     }
 }
-if ($mode -eq 'scheduled_task' -and (Test-Path -LiteralPath $startup)) { Remove-Item -LiteralPath $startup -Force }
-if (Test-Path -LiteralPath $oldStartup) { Remove-Item -LiteralPath $oldStartup -Force }
-if (Test-Path -LiteralPath $disabled) { Remove-Item -LiteralPath $disabled -Force }
-if (-not $NoLaunch) {
-    if ($mode -eq 'scheduled_task') { Start-ScheduledTask -TaskName $taskName }
-    else { Start-Process -FilePath $shell -ArgumentList ($arguments + ' -Watch') -WindowStyle Hidden }
+$cleanupPending = $false
+foreach ($entry in @($oldStartup,$startup)) {
+    if ($entry -eq $startup -and $mode -ne 'scheduled_task') { continue }
+    if (Test-Path -LiteralPath $entry) {
+        try { Remove-Item -LiteralPath $entry -Force -ErrorAction Stop }
+        catch { $cleanupPending = $true; Write-Warning 'cleanup_pending: legacy startup retained because Windows denied removal.' }
+    }
 }
-[pscustomobject]@{persistent=($mode -ne 'session_only'); mode=$mode}
+if (Test-Path -LiteralPath $disabled) { Remove-Item -LiteralPath $disabled -Force -ErrorAction Stop }
+if (-not $NoLaunch) {
+    if ($mode -eq 'scheduled_task') {
+        try { Start-ScheduledTask -TaskName $taskName -ErrorAction Stop }
+        catch { $mode = 'session_only' }
+    }
+    if ($mode -ne 'scheduled_task') { Start-Process -FilePath $shell -ArgumentList ($arguments + ' -Watch') -WindowStyle Hidden -ErrorAction Stop }
+}
+$reportedMode = if ($cleanupPending) { $mode + '_cleanup_pending' } else { $mode }
+[pscustomobject]@{persistent=($mode -ne 'session_only' -and -not $cleanupPending); mode=$reportedMode}

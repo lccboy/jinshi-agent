@@ -58,7 +58,7 @@ function Complete-Workbench([string]$Executable, [string]$SelectedDataRoot, [str
     try {
         $recovery = & (Join-Path $PackageRoot 'install-member-recovery.ps1') -MemberRoot $MemberRoot -NoLaunch:$NoLaunch
         if (-not $recovery.persistent) {
-            Write-Warning 'Recovery mode: session_only. Windows denied permanent startup. Re-run this installer as administrator to enable login recovery.'
+            Write-Warning ("Recovery mode: " + $recovery.mode + ". Permanent startup is not verified. Re-run this installer as administrator to enable login recovery.")
         }
     } catch { $recoveryError = $_ }
     if (-not $NoLaunch) {
@@ -72,7 +72,7 @@ function Complete-Workbench([string]$Executable, [string]$SelectedDataRoot, [str
     if ($recoveryError) { throw $recoveryError }
     if ($NoLaunch) { Write-Host '[STAGED] Files and recovery configured; service health not verified (-NoLaunch).' }
     elseif ($recovery.persistent) { Write-Host "[OK] Workbench $Version healthy; permanent recovery configured; data preserved." }
-    else { Write-Host "[PARTIAL] Workbench $Version healthy; data preserved; recovery=session_only (not permanent)." }
+    else { Write-Host "[PARTIAL] Workbench $Version healthy; data preserved; recovery=$($recovery.mode) (permanent startup not verified)." }
 }
 
 $recoveryMutex = New-Object Threading.Mutex($false, 'Local\JinshiDSH-MemberRecovery-8790')

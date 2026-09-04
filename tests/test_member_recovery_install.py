@@ -44,7 +44,7 @@ def test_duplicate_port_does_not_start_background_workers(tmp_path, monkeypatch)
     assert calls == []
 
 
-def recovery_fixture(tmp_path, denied=False, startup_denied=False):
+def recovery_fixture(tmp_path, denied=False, startup_denied=False, cleanup_denied=False, empty_registration=False):
     package = tmp_path / 'package'
     package.mkdir()
     startup = tmp_path / 'startup'
@@ -54,6 +54,7 @@ def recovery_fixture(tmp_path, denied=False, startup_denied=False):
         (startup / 'JinshiDSH-Workbench.vbs').mkdir()
     for name in ('install-member-workbench.ps1', 'install-member-recovery.ps1', 'member-process-recovery.ps1'):
         text = (ROOT / 'deploy' / name).read_text(encoding='utf-8-sig')
+        text = text.replace('JinshiDSH-MemberRecovery-8790', 'JinshiDSH-Install-Test-' + tmp_path.name)
         text = text.replace("[Environment]::GetFolderPath('Startup')", "'" + str(startup) + "'")
         # Isolate legacy startup cleanup from the actual user profile as well.
         text = text.replace('Join-Path $env:APPDATA "Microsoft\\Windows\\Start Menu\\Programs\\Startup\\JinshiDSH-Workbench.vbs"',
@@ -66,7 +67,9 @@ def recovery_fixture(tmp_path, denied=False, startup_denied=False):
     private = root / 'custom-data'
     (private / 'runtime').mkdir(parents=True)
     (private / 'runtime/license.json').write_bytes(b'unchanged-license-fixture')
-    registration = "throw 'denied'" if denied else "return"
+    registration = "throw 'denied'" if denied else "return [pscustomobject]@{TaskName='fixture-task'}"
+    if empty_registration:
+        registration = 'return'
     mocks = "\n".join([
         'function Get-CimInstance {}', 'function Get-ScheduledTask {}',
         'function New-ScheduledTaskAction {}', 'function New-ScheduledTaskTrigger {}',
@@ -74,6 +77,9 @@ def recovery_fixture(tmp_path, denied=False, startup_denied=False):
         'function Register-ScheduledTask { ' + registration + ' }',
         'function Start-ScheduledTask {}', 'function Unregister-ScheduledTask {}',
     ])
+    if cleanup_denied:
+        (startup / 'JinshiDSH-Workbench.vbs').write_text('old startup')
+        mocks += "\nfunction Remove-Item { throw 'cleanup denied' }"
 
     def run(version, extra=''):
         (package / 'member-workbench.json').write_text(json.dumps({'version': version, 'entry_exe': 'JinshiDSH-Workbench.exe'}))
@@ -116,3 +122,26 @@ def test_real_powershell_both_persistence_methods_fail_degrades_without_breaking
     output = result.stdout.decode(errors='replace')
     assert '[STAGED]' in output
     assert 'session_only' in output
+
+
+def test_legacy_startup_cleanup_denied_does_not_abort_healthy_install(tmp_path):
+    root, private, startup, run = recovery_fixture(tmp_path, cleanup_denied=True)
+    result = run('1.0.41')
+    assert result.returncode == 0, result.stderr
+    assert (startup / 'JinshiDSH-Workbench.vbs').read_text() == 'old startup'
+    assert b'cleanup_pending' in result.stdout
+
+
+def test_os_mutations_use_terminating_errors_and_registration_result():
+    script = (ROOT / 'deploy/install-member-recovery.ps1').read_text(encoding='utf-8-sig')
+    registration = next(line for line in script.splitlines() if 'Register-ScheduledTask -TaskName' in line)
+    assert '-ErrorAction Stop' in registration
+    assert '$registered =' in registration
+    assert 'if (-not $registered)' in script
+
+
+def test_no_registration_result_is_not_treated_as_task_success(tmp_path):
+    root, private, startup, run = recovery_fixture(tmp_path, empty_registration=True, startup_denied=True)
+    result = run('1.0.41')
+    assert result.returncode == 0, result.stderr
+    assert b'session_only' in result.stdout
