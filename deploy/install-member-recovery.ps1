@@ -1,15 +1,33 @@
-param([string]$MemberRoot = 'H:\JinshiDSH', [switch]$Disable)
+param([string]$MemberRoot = 'H:\JinshiDSH', [switch]$Disable, [switch]$Uninstall, [switch]$NoLaunch)
 $ErrorActionPreference = 'Stop'
 $taskName = 'JinshiDSH-MemberRecovery'
-if ($Disable) {
-    Disable-ScheduledTask -TaskName $taskName | Out-Null
-    exit 0
-}
 $root = [IO.Path]::GetFullPath($MemberRoot)
-if (-not (Test-Path -LiteralPath (Join-Path $root 'install_state.json'))) { throw 'Workbench is not installed' }
+if ($root -eq [IO.Path]::GetPathRoot($root)) { throw 'Invalid member root' }
 $guardDir = Join-Path $root 'recovery'
 New-Item -ItemType Directory -Path $guardDir -Force | Out-Null
+$disabled = Join-Path $guardDir 'recovery.disabled'
 $script = Join-Path $guardDir 'member-process-recovery.ps1'
+# Replace only our exact old watch process, never an unrelated PowerShell session.
+Get-CimInstance Win32_Process -Filter "Name='powershell.exe'" | Where-Object {
+    $_.CommandLine -and $_.CommandLine.Contains('"' + $script + '"') -and $_.CommandLine -match '\s-Watch(?:\s|$)'
+} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+$startup = Join-Path ([Environment]::GetFolderPath('Startup')) 'JinshiDSH-Workbench.vbs'
+$oldStartup = Join-Path ([Environment]::GetFolderPath('Startup')) 'JinshiDSH-MemberRecovery.vbs'
+if ($Disable -or $Uninstall) {
+    [IO.File]::WriteAllText($disabled, 'disabled')
+    $existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+    if ($existing) {
+        if ($Uninstall) { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false }
+        else { Disable-ScheduledTask -TaskName $taskName | Out-Null }
+    }
+    if ($Uninstall) {
+        foreach ($entry in @($startup,$oldStartup)) {
+            if (Test-Path -LiteralPath $entry) { Remove-Item -LiteralPath $entry -Force }
+        }
+    }
+    return
+}
+if (-not (Test-Path -LiteralPath (Join-Path $root 'install_state.json'))) { throw 'Workbench is not installed' }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'member-process-recovery.ps1') -Destination $script -Force
 $shell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
 $arguments = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "' + $script + '" -MemberRoot "' + $root + '" -Enabled'
@@ -21,11 +39,23 @@ $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -Ru
 $settings = New-ScheduledTaskSettingsSet -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Seconds 45) -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
 try {
     Register-ScheduledTask -TaskName $taskName -Action $action -Trigger @($login,$repeat) -Principal $principal -Settings $settings -Force | Out-Null
-    Start-ScheduledTask -TaskName $taskName
-    Write-Output 'Member recovery enabled (current user task; 60-second interval).'
-} catch [Microsoft.Management.Infrastructure.CimException] {
-    # No privilege escalation: protect this session only; report persistence failure.
-    Start-Process -FilePath $shell -ArgumentList ($arguments + ' -Watch') -WindowStyle Hidden
-    Write-Warning 'Task registration denied. Session-only recovery started; rerun installer as administrator for login persistence.'
-    exit 2
+    $mode = 'scheduled_task'
+} catch {
+    # Supported per-user fallback, never elevate or modify a protected registry key.
+    try {
+        $command = '"' + $shell + '" ' + $arguments + ' -Watch'
+        $vbs = 'Set shell = CreateObject("WScript.Shell")' + "`r`n" + 'shell.Run "' + $command.Replace('"','""') + '", 0, False'
+        [IO.File]::WriteAllText($startup, $vbs, [Text.Encoding]::Unicode)
+        $mode = 'user_startup'
+    } catch {
+        throw 'Permanent recovery setup failed. Run install-member-workbench.ps1 as administrator; installation is incomplete.'
+    }
 }
+if ($mode -eq 'scheduled_task' -and (Test-Path -LiteralPath $startup)) { Remove-Item -LiteralPath $startup -Force }
+if (Test-Path -LiteralPath $oldStartup) { Remove-Item -LiteralPath $oldStartup -Force }
+if (Test-Path -LiteralPath $disabled) { Remove-Item -LiteralPath $disabled -Force }
+if (-not $NoLaunch) {
+    if ($mode -eq 'scheduled_task') { Start-ScheduledTask -TaskName $taskName }
+    else { Start-Process -FilePath $shell -ArgumentList ($arguments + ' -Watch') -WindowStyle Hidden }
+}
+[pscustomobject]@{persistent=$true; mode=$mode}

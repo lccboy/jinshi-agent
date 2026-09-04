@@ -18,6 +18,7 @@ import threading
 import time
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import socket
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlencode, urljoin, urlparse
 from urllib.request import urlopen
@@ -28,7 +29,7 @@ from services.local_license import (license_allows_member, load_license_cache,
 
 
 MEMBER_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
-HELPER_VERSION = "1.0.38"
+HELPER_VERSION = "1.0.39"
 _GENERATION_LOCK = threading.Lock()
 _GENERATION_THREADS = {}
 _SYNC_THREAD = None
@@ -1927,12 +1928,26 @@ def main(argv=None):
     MemberHandler.runtime_root = paths["runtime"]
     MemberHandler.web_root = default_web_root()
     MemberHandler.upstream_api = args.server_api or os.environ.get("JINSHI_SERVER_API") or REMOTE_SERVER_API
+    # Reserve the listener before starting workers: a duplicate launch cannot collect.
+    server = ThreadingHTTPServer((args.host, args.port), MemberHandler, bind_and_activate=False)
+    server.allow_reuse_address = False
+    try:
+        if hasattr(socket, 'SO_EXCLUSIVEADDRUSE'):
+            server.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        server.server_bind()
+        server.server_activate()
+    except BaseException:
+        server.server_close()
+        raise
     start_public_sync(MemberHandler.shared_root, MemberHandler.upstream_api,
                       members_root=MemberHandler.members_root, runtime_root=MemberHandler.runtime_root)
     start_member_minute_archive_scheduler(MemberHandler.members_root, MemberHandler.runtime_root)
     if sys.stdout:
         print(f"[OK] 会员本地数据助手 http://{args.host}:{args.port}", flush=True)
-    ThreadingHTTPServer((args.host, args.port), MemberHandler).serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        server.server_close()
 
 
 if __name__ == "__main__":

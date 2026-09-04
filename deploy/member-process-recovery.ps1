@@ -1,6 +1,9 @@
 param([string]$MemberRoot = 'H:\JinshiDSH', [switch]$Enabled, [switch]$Watch)
 $ErrorActionPreference = 'Stop'
 if (-not $Enabled) { exit 0 }
+$root = [IO.Path]::GetFullPath($MemberRoot)
+$disabled = Join-Path $root 'recovery\recovery.disabled'
+if (Test-Path -LiteralPath $disabled) { exit 0 }
 if ($Watch) {
     $watchMutex = New-Object Threading.Mutex($false, 'Local\JinshiDSH-MemberRecovery-Watch')
     $ownsWatch = $false
@@ -8,6 +11,7 @@ if ($Watch) {
         try { $ownsWatch = $watchMutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $ownsWatch = $true }
         if (-not $ownsWatch) { exit 0 }
         while ($true) {
+            if (Test-Path -LiteralPath $disabled) { break }
             & (Join-Path $PSHOME 'powershell.exe') -NoProfile -NonInteractive -ExecutionPolicy Bypass -File $PSCommandPath -MemberRoot $MemberRoot -Enabled
             Start-Sleep -Seconds 60
         }
@@ -24,6 +28,7 @@ $locked = $false
 try {
     try { $locked = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $locked = $true }
     if (-not $locked) { exit 0 }
+    if (Test-Path -LiteralPath $disabled) { exit 0 }
     $install = Get-Content -LiteralPath (Join-Path $root 'install_state.json') -Raw -Encoding UTF8 | ConvertFrom-Json
     $exe = [IO.Path]::GetFullPath((Join-Path $install.install_root ('versions\' + $install.current_version + '\JinshiDSH-Workbench.exe')))
     if (-not $exe.StartsWith($root + '\', [StringComparison]::OrdinalIgnoreCase)) { throw 'Executable outside member root' }

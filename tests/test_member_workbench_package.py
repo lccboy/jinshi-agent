@@ -97,11 +97,11 @@ def test_member_guide_covers_complete_first_run_and_daily_workflow():
 
 def test_server_web_build_publishes_zip_guide_and_excludes_legacy_helper():
     script = (ROOT / "deploy" / "build.ps1").read_text(encoding="utf-8-sig")
-    assert "JinshiDSH-Workbench-1.0.38.zip" in script
-    assert "JinshiDSH-Workbench-1.0.38.sha256.txt" in script
+    assert "JinshiDSH-Workbench-1.0.39.zip" in script
+    assert "JinshiDSH-Workbench-1.0.39.sha256.txt" in script
     assert "member-workbench-latest.json" in script
     assert "MEMBER-GUIDE.txt" in script
     assert "JinshiDSH-MemberHelper.exe" in script
     web = (ROOT / "apps" / "web" / "assets" / "app.js").read_text(encoding="utf-8")
-    assert "downloads/JinshiDSH-Workbench-1.0.38.zip" in web
+    assert "downloads/JinshiDSH-Workbench-1.0.39.zip" in web
     assert "member-guide.html" in web

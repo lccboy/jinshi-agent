@@ -64,6 +64,9 @@ if ($installerBytes.Length -lt 1000 -or $installerBytes[0] -ne 0xEF -or
     throw "安装脚本不完整或不是 UTF-8 BOM 编码"
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot "member-workbench.json") -Destination $package
+foreach ($recoveryFile in @('install-member-recovery.ps1','member-process-recovery.ps1')) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $recoveryFile) -Destination $package
+}
 $guideSource = Join-Path $root "docs\MEMBER_WORKBENCH_GUIDE.md"
 $guideTarget = Join-Path $package "MEMBER-GUIDE.txt"
 [IO.File]::Copy($guideSource, $guideTarget, $true)
