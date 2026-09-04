@@ -109,9 +109,10 @@ def test_real_powershell_task_denied_uses_unicode_startup(tmp_path):
     assert '-Watch' in vbs and 'member-process-recovery.ps1' in vbs
 
 
-def test_real_powershell_both_persistence_methods_fail_is_not_success(tmp_path):
+def test_real_powershell_both_persistence_methods_fail_degrades_without_breaking_install(tmp_path):
     root, private, startup, run = recovery_fixture(tmp_path, denied=True, startup_denied=True)
     result = run('1.0.39')
-    assert result.returncode != 0
-    assert b'[OK]' not in result.stdout
-    assert b'Permanent recovery setup failed' in result.stderr
+    assert result.returncode == 0, result.stderr
+    output = result.stdout.decode(errors='replace')
+    assert '[STAGED]' in output
+    assert 'session_only' in output

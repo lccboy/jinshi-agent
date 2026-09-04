@@ -6,7 +6,7 @@
 $ErrorActionPreference = "Stop"
 if ([string]::IsNullOrWhiteSpace($Executable)) {
     $Executable = [IO.Path]::GetFullPath([IO.Path]::Combine(
-        $PSScriptRoot, "..", "dist-member-workbench", "JinshiDSH-Workbench-1.0.39",
+        $PSScriptRoot, "..", "dist-member-workbench", "JinshiDSH-Workbench-1.0.40",
         "app", "JinshiDSH-Workbench", "JinshiDSH-Workbench.exe"))
 }
 if (-not (Test-Path -LiteralPath $Executable)) { throw "workbench executable not found" }

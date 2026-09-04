@@ -29,19 +29,19 @@ New-Item -ItemType Directory -Path $downloads -Force | Out-Null
 Remove-Item -LiteralPath (Join-Path $downloads "JinshiDSH-MemberHelper.exe") -Force -ErrorAction SilentlyContinue
 Remove-Item -LiteralPath (Join-Path $downloads "JinshiDSH-MemberHelper.exe.sha256.txt") -Force -ErrorAction SilentlyContinue
 $workbenchOutput = [IO.Path]::GetFullPath([IO.Path]::Combine($PSScriptRoot, "..", "dist-member-workbench"))
-foreach ($name in "JinshiDSH-Workbench-1.0.39.zip", "JinshiDSH-Workbench-1.0.39.sha256.txt") {
+foreach ($name in "JinshiDSH-Workbench-1.0.40.zip", "JinshiDSH-Workbench-1.0.40.sha256.txt") {
     $source = Join-Path $workbenchOutput $name
     if (-not (Test-Path -LiteralPath $source)) { throw "请先构建会员工作台: $source" }
     Copy-Item -LiteralPath $source -Destination $downloads -Force
 }
 Copy-Item -LiteralPath ([IO.Path]::Combine($PSScriptRoot, "..", "docs", "MEMBER_WORKBENCH_GUIDE.md")) `
     -Destination (Join-Path $downloads "MEMBER-GUIDE.txt") -Force
-$zipHash = (Get-FileHash -LiteralPath (Join-Path $downloads "JinshiDSH-Workbench-1.0.39.zip") -Algorithm SHA256).Hash
+$zipHash = (Get-FileHash -LiteralPath (Join-Path $downloads "JinshiDSH-Workbench-1.0.40.zip") -Algorithm SHA256).Hash
 $latest = [ordered]@{
     schema_version = "member-workbench-update-v1"
-    version = "1.0.39"
-    zip_url = "http://114.132.236.131/dsh/downloads/JinshiDSH-Workbench-1.0.39.zip"
-    sha256_url = "http://114.132.236.131/dsh/downloads/JinshiDSH-Workbench-1.0.39.sha256.txt"
+    version = "1.0.40"
+    zip_url = "http://114.132.236.131/dsh/downloads/JinshiDSH-Workbench-1.0.40.zip"
+    sha256_url = "http://114.132.236.131/dsh/downloads/JinshiDSH-Workbench-1.0.40.sha256.txt"
     sha256 = $zipHash
     notes = "新版会员中心、通达信本地配置、5 天试用注册、TAB 页面与功能更新检查"
 }

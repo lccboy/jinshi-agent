@@ -48,7 +48,7 @@ try {
         [IO.File]::WriteAllText($startup, $vbs, [Text.Encoding]::Unicode)
         $mode = 'user_startup'
     } catch {
-        throw 'Permanent recovery setup failed. Run install-member-workbench.ps1 as administrator; installation is incomplete.'
+        $mode = 'session_only'
     }
 }
 if ($mode -eq 'scheduled_task' -and (Test-Path -LiteralPath $startup)) { Remove-Item -LiteralPath $startup -Force }
@@ -58,4 +58,4 @@ if (-not $NoLaunch) {
     if ($mode -eq 'scheduled_task') { Start-ScheduledTask -TaskName $taskName }
     else { Start-Process -FilePath $shell -ArgumentList ($arguments + ' -Watch') -WindowStyle Hidden }
 }
-[pscustomobject]@{persistent=$true; mode=$mode}
+[pscustomobject]@{persistent=($mode -ne 'session_only'); mode=$mode}
